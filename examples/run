@@ -1,0 +1,13 @@
+#! /bin/sh
+./clean
+
+set -e
+
+# Run examples in the right sequence
+kpython -n1 createBackground.py
+kpython -n1 createCylinder.py
+kpython -n1 createAirfoil.py
+
+kpython -n2 -t24 howToUseCassiopeeHoleCutting.py
+kpython -n3 -t16 howToUseCassiopeeHoleCuttingTwoBodies.py 
+kpython -n3 -t16 howToUseCassiopeeHoleCuttingTwoBodiesMeshIntersection.py 

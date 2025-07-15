@@ -1,0 +1,79 @@
+image: AS-01Gitlab01l.as.bs.dlr.de:5550/sp/flowsim-registry/fsdm/fsdm:develop-ubuntu20.04-spack0.19-x86_64-v3
+
+default:
+  before_script:
+    - source /etc/profile.d/setup-spack-env.sh
+    - spack load fsdm
+    - export INSTALL_PATH=${CI_PROJECT_DIR}/install_dir
+    # depending on the image, the shared libraries are in lib or lib64, so we add both
+    - export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${FLOWSIM_PATH}/lib:${FLOWSIM_PATH}/lib64
+    - export PYTHON_VERSION=python`python -c 'import sys; print(".".join(map(str, sys.version_info[:2])))'`
+    - export PYTHONPATH=${PYTHONPATH}:${FLOWSIM_PATH}/lib/${PYTHON_VERSION}/site-packages:${INSTALL_PATH}/lib/${PYTHON_VERSION}/site-packages
+
+stages:
+#  - style
+  - configure
+  - build
+  - install
+  - test
+
+configure:
+  stage: configure
+  script:
+    - echo ${INSTALL_PATH}
+    - ls /builds/shared-fs-plugins
+    - spack install cassiopee@3.7F
+    - spack config add modules:prefix_inspections:lib:[LIBRARY_PATH]
+    - spack config add modules:prefix_inspections:lib64:[LIBRARY_PATH]
+    - spack load cassiopee
+    - which python
+    - python3 --version
+    - which g++
+    - g++ --version
+    - ./waf configure --disable-fsconfig --prefix=${INSTALL_PATH}
+  artifacts:
+    when: always
+    paths:
+      - build
+      - .lock-waf_linux_build
+    expire_in: 14 days
+
+build:
+  stage: build
+  needs:
+    - configure
+  script:
+    - ./waf build
+  artifacts:
+    paths:
+      - build
+      - .lock-waf_linux_build
+    expire_in: 1 day
+
+install:
+  stage: install
+  needs:
+    - build
+  script:
+    - ./waf install
+  artifacts:
+    paths:
+      - config/linux-x86_64.ini
+      - install_dir
+    expire_in: 1 day
+
+python-tests:
+  stage: test
+  needs:
+    - install
+  script:
+    - spack install cassiopee@3.7F
+    - spack load cassiopee
+    - cd examples
+    - ./clean
+    - ./run
+  artifacts:
+    when: always
+    paths:
+
+    reports:
