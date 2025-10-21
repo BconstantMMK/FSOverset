@@ -102,7 +102,7 @@ def holeMesh(clac, fsmesh, paraDict, offsets, meshID, offsetFromBC="BCOverset"):
             coordsName = "UndeformedCoordinates"
         else:
             coordsName = "Coordinates"
-        convObj = FSCGNSConverter(clac=clac, fsmesh=fsmesh, bcDict=bcDict, coordsName=coordsName)
+        convObj = FSCGNSConverter(clac=clac, fsmesh=fsmesh, bcDict=bcDict, coordsName=coordsName, datasets=[])
         convObj.convert2CGNS()
 
         z_body = Internal.getZones(convObj.pyTree)[0]
