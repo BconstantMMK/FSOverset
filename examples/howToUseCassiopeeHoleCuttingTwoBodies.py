@@ -14,7 +14,8 @@ refer to example howToUseCassiopeeHoleCuttingTwoBodiesDoubleBlanking.py.
 offsets = [0.2,0.05] # case in which the blanked areas of the two child meshes do not intersect, but the cylinder child mesh overset border intersects the blanked area of the naca child mesh
 # offsets = [0.3,0.5]  # case in which the blanked areas of naca and cylinder child mesh intersect
 
-localDir = './OUTPUT/TEST2/'
+localDirIn = './INPUT/'
+localDirOut = './OUTPUT/TEST2/'
 
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
@@ -29,15 +30,15 @@ clac = FSClac()
 globalClac.DivideIntoGroups(meshID, clac)
 
 if meshID == 0:
-    meshFilename = 'naca_background.h5'
+    meshFilename = localDirIn+'background.h5'
     meshKeyOriginal = 'back_orig'  # the original background mesh
     meshKeyActive = 'back_active'  # the active part of the background mesh
 elif meshID == 1:
-    meshFilename = 'naca_curvi.h5'
+    meshFilename = localDirIn+'naca.h5'
     meshKeyOriginal = 'naca'
     meshKeyActive = 'naca'
 else:
-    meshFilename = 'cyl_curvi.h5'
+    meshFilename = localDirIn+'cylinder_small.h5'
     meshKeyOriginal = 'cyl'
     meshKeyActive = 'cyl'
 
@@ -46,14 +47,14 @@ fsmeshOrig = dm.GetMesh(meshKeyOriginal, clac, True)
 meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
-# Get active mesh - useful for CODA computations where the active part is extracted)
+# Get active mesh - useful for CODA computations where the active part is extracted
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
 mask = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
     offsets=offsets,
     meshID=meshID,
-    localDir=localDir,
+    localDir=localDirOut,
     offsetFromBC='BCWall',  # offsetFromBC='BCWall' or 'BCOverset' (by default)
     check=True
 )
@@ -71,13 +72,13 @@ for i in range(0, 1):
     extractActiveSubMesh(dm, meshKeyOriginal, meshKeyActive)
 
     fsmeshOrig.ExportMeshTECPLOT(
-        Filename=localDir+'blanking_mesh_%d.plt'%meshID,
+        Filename=localDirOut+'blanking_mesh_%d.plt'%meshID,
         FileFormat='binary',
         PrefixDatasetName=True
     ) or FSError.PrintAndExit()
 
     fsmeshActive.ExportMeshTECPLOT(
-        Filename=localDir+'blanked_mesh_%d.plt'%meshID,
+        Filename=localDirOut+'blanked_mesh_%d.plt'%meshID,
         FileFormat='binary',
         PrefixDatasetName=True
     ) or FSError.PrintAndExit()

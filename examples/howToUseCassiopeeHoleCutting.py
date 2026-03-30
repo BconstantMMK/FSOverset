@@ -5,7 +5,8 @@ from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractPyTree, extractActiveSubMesh
 
 offsets = [0.3]
-localDir = './OUTPUT/TEST1/'
+localDirIn = './INPUT/'
+localDirOut = './OUTPUT/TEST1/'
 
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
@@ -20,11 +21,11 @@ clac = FSClac()
 globalClac.DivideIntoGroups(meshID, clac)
 
 if meshID == 0:
-    meshFilename = 'naca_background.h5'
+    meshFilename = localDirIn+'background.h5'
     meshKeyOrig = 'back_orig'  # the original background mesh
     meshKeyActive = 'back_active'  # the active part of the background mesh
 else:
-    meshFilename = 'naca_curvi.h5'
+    meshFilename = localDirIn+'naca.h5'
     meshKeyOrig = 'naca'
     meshKeyActive = 'naca'
 
@@ -33,14 +34,14 @@ fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
 meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
-# Get active mesh - useful for CODA computations where the active part is extracted)
+# Get active mesh - useful for CODA computations where the active part is extracted
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
 mask = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
     offsets=offsets,
     meshID=meshID,
-    localDir=localDir,
+    localDir=localDirOut,
     offsetFromBC='BCWall',  # offsetFromBC='BCWall' or 'BCOverset' (by default)
     check=True
 )
@@ -58,13 +59,13 @@ for i in range(0, 1):
     extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
 
     fsmeshOrig.ExportMeshTECPLOT(
-        Filename=localDir+'blanking_mesh_%d.plt'%meshID,
+        Filename=localDirOut+'blanking_mesh_%d.plt'%meshID,
         FileFormat='binary',
         PrefixDatasetName=True
     ) or FSError.PrintAndExit()
 
     fsmeshActive.ExportMeshTECPLOT(
-        Filename=localDir+'blanked_mesh_%d.plt'%meshID,
+        Filename=localDirOut+'blanked_mesh_%d.plt'%meshID,
         FileFormat='binary',
         PrefixDatasetName=True
     ) or FSError.PrintAndExit()
