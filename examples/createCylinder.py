@@ -48,7 +48,7 @@ for mesh_name,external_radius in zip(meshes_names,external_radii):
     extFaces = T.breakElements(extFaces)
     Internal.printTree(extFaces)
 
-    list_bcs = ["BCFarfield","BCSymmetryPlane","BCWall"]
+    list_bcs = ["BCOverset","BCSymmetryPlane","BCWallInviscid"]
     for zone_extFaces in Internal.getZones(extFaces):
         print("Creating boundary condition.. ")
         GE = Internal.getNodeFromName(zone_extFaces, 'GridElements')
@@ -71,9 +71,9 @@ for mesh_name,external_radius in zip(meshes_names,external_radii):
             if numpy.all(zCoord[EC_reshape[idx]-1]-tol<zMin) or numpy.all(zCoord[EC_reshape[idx]-1]+tol>zMax):
                 CODABCType='BCSymmetryPlane'
             elif (numpy.all(((xCoord[EC_reshape[idx]-1]-x_center)**2 + (yCoord[EC_reshape[idx]-1]-y_center)**2)**0.5 + tol>external_radius)):
-                CODABCType='BCFarfield'
+                CODABCType='BCOverset'
             else:
-                CODABCType="BCWall"
+                CODABCType="BCWallInviscid"
             dictionary_bcs_idx[CODABCType].append(idx)
 
         for CODABCType in list_bcs:
