@@ -12,16 +12,19 @@ import Geom.PyTree as D
 from FSDataManager import (
     FSIntArray, FSStringArray,
     FSUnstructVolumeCellTypes,
-    FSDataSpecArray, FSDatasetInfo
+    FSDataSpecArray, FSDatasetInfo,
+    FSError, FS_AT_CADGroupID
 )
+
+import FSOversetBlanking # needed for extractActiveSubMesh and copySolution
 
 from FSCGNSConverter.FSCGNSConverter import FSCGNSConverter
 
 __all__ = [
-    'FSOverset',
-    'holeMesh', 'surfaceBackgroundMesh', 'backgroundMesh', 'childMesh'
+    'FSOverset', 'generateBlankingMask', 'extractPyTree',
+    'generateDiscParasFromMesh', 'generateBCDictFromMesh',
+    'extractActiveSubMesh', 'copySolution'
 ]
-
 
 # ---------------------------------------------------------------------------- #
 # Classes
@@ -29,47 +32,44 @@ __all__ = [
 
 class FSOverset:
 
-    validBlankingTypes = ["center_in", "node_in", "cell_intersect"]
-
     def __init__(self, clac, fsmesh, pyTree=None):
         self.clac = clac
         self.fsmesh = fsmesh
-        self.t_bg = pyTree
+        self.pyTree = pyTree
+        self.cellNName = 'cellN' # cellN located at the nodes 
 
         self.fsVolumeCellTypes = FSIntArray(0)
         for cellType in FSUnstructVolumeCellTypes:
             if self.fsmesh.HasCellType(cellType):
                 self.fsVolumeCellTypes.Append(cellType)
 
-    def computeBlanking(self, tb2, blankingType="center_in"):
-        if blankingType not in FSOverset.validBlankingTypes:
-            raise ValueError(
-                f"Invalid blankingType: {blankingType}. "
-                f"Must be one of {FSOverset.validBlankingTypes}."
-            )
-        if self.t_bg is not None:
-            C._deleteEmptyZones(self.t_bg)
-            for meshid in tb2:
-                bodies = [[tb2[meshid]]]
-                self.t_bg = X.blankCellsTri(self.t_bg, bodies, [], blankingType=blankingType)
+    def computeBlanking(self, tb, blankingType='center_in', dim=3):
+        validBlankingTypes = ['center_in', 'node_in', 'cell_intersect']
+        if blankingType not in validBlankingTypes:
+            raise ValueError("computeBlanking: invalid blankingType (%s). Possible values are %s"%(blankingType, validBlankingTypes))
+        
+        if self.pyTree is not None:
+            C._deleteEmptyZones(self.pyTree)
+            for meshID in tb:
+                bodies = [[tb[meshID]]]
+                self.pyTree = X.blankCellsTri(self.pyTree, bodies, [], blankingType=blankingType, cellNName=self.cellNName)
 
             # Create an FSDM dataset for cellN obtained in Cassiopee
-            cellNList = Internal.getNodesFromName(self.t_bg, "cellN")
+            cellNList = Internal.getNodesFromName(self.pyTree, self.cellNName)
             cellN = [n_cellN[1] for n_cellN in cellNList]
             np_cellN = numpy.concatenate(cellN)
-            Internal._rmNodesFromType(self.t_bg, "FlowSolution_t")
+            Internal._rmNodesFromType(self.pyTree, 'FlowSolution_t')
 
-            varName = "cellN"
-            if not self.fsmesh.HasUnstructDataset(varName):
+            if not self.fsmesh.HasUnstructDataset(self.cellNName):
                 fsVarNames = FSStringArray(1)
-                fsVarNames[0] = varName
+                fsVarNames[0] = self.cellNName
                 fsVarSpecs = FSDataSpecArray(1)
                 self.fsmesh.InitUnstructDataset(
-                    varName,
+                    self.cellNName,
                     FSDatasetInfo(fsVarNames, fsVarSpecs, self.fsVolumeCellTypes)
                 )
 
-            fs_var = self.fsmesh.GetUnstructDataset(varName).GetValues()
+            fs_var = self.fsmesh.GetUnstructDataset(self.cellNName).GetValues()
             numpy.copyto(
                 numpy.array(fs_var.Buffer(), copy=False),
                 np_cellN[:,None],
@@ -78,79 +78,159 @@ class FSOverset:
 
         return None
 
-
 # ---------------------------------------------------------------------------- #
-# Functions
+# FSOverset Functions
 # ---------------------------------------------------------------------------- #
 
-def holeMesh(clac, fsmesh, paraDict, offsets, meshID, offsetFromBC="BCOverset"):
-    tb2 = None
-    # Conversion of the curvilinear mesh of the body ("standard" conversion)
-    if meshID > 0:
-        tmp_bcDict = {}
-        for dictio in paraDict["boundary treatments"]:
-            if dictio["treatment type"] in tmp_bcDict:
-                for value in dictio["boundary markers"]:
-                    tmp_bcDict[dictio["treatment type"]].append(value)
-            else:
-                tmp_bcDict[dictio["treatment type"]] = dictio["boundary markers"]
-        bcDict = {}
-        for bcname, markers in tmp_bcDict.items():
-            for marker in markers:
-                bcDict[marker] = bcname
-        if fsmesh.HasUnstructDataset("UndeformedCoordinates"):
-            coordsName = "UndeformedCoordinates"
-        else:
-            coordsName = "Coordinates"
+def generateBlankingMask(clac, fsmesh, offsets, meshID, meshIDBackground=0, offsetFromBC='BCOverset', dim=3, localDir='./', check=False):
+    """Generate a blanking mask from a specified BC"""
+    validBCNames = ['BCOverset', 'BCWall']
+    if offsetFromBC not in validBCNames:
+        raise ValueError("generateBlankingMask: invalid offsetFromBC (%s). Possible values are %s"%(offsetFromBC, validBCNames))
+
+    tb = None
+
+    # Conversion of the curvilinear mesh of the body ('standard' conversion)
+    if meshID != meshIDBackground:
+        bcDict = generateBCDictFromMesh(fsmesh)
+        if fsmesh.HasUnstructDataset('UndeformedCoordinates'): coordsName = 'UndeformedCoordinates'
+        else: coordsName = 'Coordinates'
         convObj = FSCGNSConverter(clac=clac, fsmesh=fsmesh, bcDict=bcDict, coordsName=coordsName, datasets=[])
         convObj.convert2CGNS()
 
         z_body = Internal.getZones(convObj.pyTree)[0]
-        z_body[0] += f".{Cmpi.rank:d}"
+        z_body[0] += f'.{Cmpi.rank:d}'
 
-        # Extract only the wall for the blanking (surface mesh)
-        wall = C.extractBCOfType(z_body,offsetFromBC)
+        # Extract the BC
+        wall = C.extractBCOfType(z_body, offsetFromBC)
         C._deleteFlowSolutions__(wall)
-        elts = Internal.getNodesFromType(wall, "Elements_t")
+        elts = Internal.getNodesFromType(wall, 'Elements_t')
         for elt in elts:
-            if elt[0].startswith("GridElements"):
+            if elt[0].startswith('GridElements'):
                 Internal._rmNode(wall, elt)
-        tb2 = C.convertArray2Tetra(wall)
-        if len(tb2) != 0:
-            param_solver = Internal.getNodeFromType(tb2, "UserDefinedData_t")
-            proc_safe = Internal.getNodeFromName(param_solver, "proc")[1][0][0]
-            tb2 = T.join(tb2)
-            tb2 = Internal.getZones(tb2)[0]
-            param_solver = Internal.newUserDefinedData("param", parent=tb2)
-            Internal.newDataArray(".Solver#Param", parent=param_solver, value=proc_safe)
-            Internal.newDataArray("meshID", parent=param_solver, value=meshID)
+        tb = C.convertArray2Tetra(wall)
+        if tb:
+            # param_solver = Internal.getNodeFromType(tb, 'UserDefinedData_t')
+            # proc_safe = Internal.getNodeFromName(param_solver, 'proc')[1][0][0]
+            # tb = T.join(tb)
+            # tb = Internal.getZones(tb)[0]
+            # param_solver = Internal.newUserDefinedData('param', parent=tb)
+            # Internal.newDataArray('.Solver#Param', parent=param_solver, value=proc_safe)
+            # Internal.newDataArray('meshID', parent=param_solver, value=meshID)
+            tb = T.join(tb)
+            Cmpi._setProc(tb, Cmpi.rank)
+            param = Internal.getNodeFromName1(tb, '.Solver#Param')
+            Internal.newDataArray('meshID', parent=param, value=meshID)
 
-    tb2 = Cmpi.allgatherZones(tb2)
-    if Cmpi.master: C.convertPyTree2File(tb2, "wall.plt")
+    # Create bodies per meshID
+    tb = Cmpi.allgatherZones(tb)
+    if Cmpi.master and check: C.convertPyTree2File(tb, localDir+'wall_%d.plt'%meshID)
     bodies = {}
-    for zone in Internal.getZones(tb2):
-        meshid = Internal.getNodeFromName(zone,"meshID")[1][0]
-        if meshid not in bodies.keys():
-            bodies[meshid] = zone
+    for zone in Internal.getZones(tb):
+        meshID = Internal.getNodeFromName(zone,'meshID')[1][0]
+        if meshID not in bodies.keys():
+            bodies[meshID] = zone
         else:
-            bodies[meshid] = T.join(bodies[meshid],zone)
-            bodies[meshid] = G.close(bodies[meshid])
+           bodies[meshID] = T.join(bodies[meshID],zone)
+           bodies[meshID] = G.close(bodies[meshID])
+
+    # Create offset bodies per meshID
     bodies_offset = bodies.copy()
-    sign_offset = 1. if offsetFromBC=="BCWall" else -1.
-    for meshid in bodies_offset:
-        BB = G.bbox(bodies_offset[meshid])
+    sign_offset = 1. if offsetFromBC == 'BCWall' else -1.
+    for meshID in bodies_offset:
+        BB = G.bbox(bodies_offset[meshID])
         xmin = BB[0]; ymin = BB[1]; zmin = BB[2]
         xmax = BB[3]; ymax = BB[4]; zmax = BB[5]
         dmax = max((xmax-xmin), (ymax-ymin), (zmax-zmin))
-        ppul = 100./dmax
-        if Cmpi.master: print("Points per unit lenght=",ppul)
-        bodies_offset[meshid] = D.offsetSurface(bodies_offset[meshid], offset=sign_offset*offsets[meshid-1], pointsPerUnitLength=ppul, algo=0, dim=3)[0]
-        if Cmpi.master: C.convertPyTree2File(bodies_offset[meshid], "wall_offset_%s.plt" %meshid)
-        bodies_offset[meshid] = C.convertArray2Tetra(bodies_offset[meshid])
-        bodies_offset[meshid] = G.close(bodies_offset[meshid])
+        ppul = 50./dmax
+        if Cmpi.master: print('generateBlankingMask: generating offset (meshID=%d) with ppul=%f and dmax=%f'%(meshID, ppul, dmax))
+        bodies_offset[meshID] = D.offsetSurface(bodies_offset[meshID], offset=sign_offset*offsets[meshID-1], pointsPerUnitLength=ppul, algo=0, dim=dim)[0]
+        if Cmpi.master and check: C.convertPyTree2File(bodies_offset[meshID], localDir+'wall_offset_%s.plt' %meshID)
+        bodies_offset[meshID] = C.convertArray2Tetra(bodies_offset[meshID])
+        bodies_offset[meshID] = G.close(bodies_offset[meshID])
 
-    #offset_tb2 = C.newPyTree(["bodies",list(bodies.values())])
     return bodies_offset
+
+def extractPyTree(clac, fsmesh, meshID, meshIDTarget):
+    """Extract a pyTree mesh from a fsmesh based on meshID"""
+    t = None
+    if meshID == meshIDTarget:
+        # Conversion of the background mesh ('light' conversion -> only the volume element types)
+        convObj = FSCGNSConverter(clac=clac, fsmesh=fsmesh)
+        convObj.convert2CGNS(forOverset=True)
+        z = Internal.getZones(convObj.pyTree)[0]
+        z = C.breakConnectivity(z)
+        t = C.newPyTree(['Base', z])
+    return t
+
+# ---------------------------------------------------------------------------- #
+# FSOversetBlanking Functions
+# ---------------------------------------------------------------------------- #
+
+def extractActiveSubMesh(fsdatamanager, MeshKeyOrig, meshKeyActive):
+    """Extract the active mesh (blanked mesh) from the original mesh (non-blanked mesh) based on cellN dataset"""
+    # cellN = 0: blanked cells
+    # cellN = 1: non-blanked cells
+    dataManagerOps = (('BlankMesh', {'MeshKeyOrig'     : MeshKeyOrig,
+                                     'MeshKeyActive'   : meshKeyActive,
+                                     'DatasetNameCellNature': 'cellN',
+                                     'QuantityNameCellNature': 'cellN',
+                                     'CellNatureActive': 1,
+                                     'AddFacesMarker': 56,
+                                     'AddFacesBC': 'BCOverset',
+                                    }),)
+    fsdatamanager.DoOps(dataManagerOps) or FSError.PrintAndExit()
+    return None
+
+def copySolution(fsdatamanager, MeshKeyOrig, meshKeyActive):
+    """Copy the flow solution from the active mesh (blanked mesh) to the original mesh (non-blanked mesh)"""
+    # cellN = 0: blanked cells
+    # cellN = 1: non-blanked cells
+    dataManagerOps = (('CopyDataOfBlankedMesh', {'MeshKeyOrig'    : MeshKeyOrig,
+                                                 'MeshKeyActive'  : meshKeyActive,
+                                                 'AttributeNameDataAvailable': 'DataPresent',
+                                                 'InitBlankedCellData': 2,
+                                          }),)
+    fsdatamanager.DoOps(dataManagerOps) or FSError.PrintAndExit()
+    return None
+
+# ---------------------------------------------------------------------------- #
+# Helper Functions
+# ---------------------------------------------------------------------------- #
+
+def getBoundaryTreatmentsFromMesh__(fsmesh):
+    markers = FSIntArray()
+    fsmesh.GatherCellAttributeValues(FS_AT_CADGroupID, markers) or FSError.PrintAndExit()
+
+    treatments = {}
+    for marker in markers: # get BCType and associated boundary markers
+        treatmentType = str(fsmesh.GetCellAttributeValueName(FS_AT_CADGroupID, marker))
+        treatmentType = ''.join([i for i in treatmentType if not i.isdigit()]) # remove integer(s) from name
+        if treatmentType in treatments: treatments[treatmentType].append(marker)
+        else: treatments[treatmentType] = [marker]
+    
+    return treatments
+
+def generateDiscParasFromMesh(fsmesh, discParaDict=None):
+    """Extract the boundary marker names from the fsmesh and generates the matching discParas"""
+    treatments = getBoundaryTreatmentsFromMesh__(fsmesh)
+    paraDict = discParaDict.copy() if discParaDict is not None else {}
+    paraDict['boundary treatments'] = [
+        {'treatment type': key, 'boundary markers': value} for key, value in treatments.items()
+    ]
+    return paraDict
+
+def generateBCDictFromMesh(fsmesh):
+    """Extract the boundary marker names from the fsmesh and generates the matching bcdict"""
+    treatments = getBoundaryTreatmentsFromMesh__(fsmesh)
+    bcDict = {}
+    for treatmentType, markers in treatments.items():
+        for marker in markers: bcDict[marker] = treatmentType
+    return bcDict
+
+# ---------------------------------------------------------------------------- #
+# Deprecated Functions
+# ---------------------------------------------------------------------------- #
 
 def surfaceBackgroundMesh(clac, fsmesh, paraDict, wallBoundaryMarkers, offsets, meshID):
     Cmpi.barrier()
@@ -220,31 +300,3 @@ def surfaceBackgroundMesh(clac, fsmesh, paraDict, wallBoundaryMarkers, offsets, 
         bodies_offset[meshid] = G.close(bodies_offset[meshid])
     #offset_tb2 = C.newPyTree(["bodies",list(bodies.values())])
     return bodies, bodies_offset
-
-def backgroundMesh(clac, fsmesh, meshID):
-    t_bg = None
-    if meshID == 0:
-        # Conversion of the background mesh ("light" conversion -> only the volume element types)
-        convObj = FSCGNSConverter(clac=clac, fsmesh=fsmesh)
-        convObj.convert2CGNS(forOverset=True)
-        z_bg = Internal.getZones(convObj.pyTree)[0]
-        z_bg = C.breakConnectivity(z_bg)
-        #z_bg = C.convertArray2NGon(z_bg)
-        #z_bg = T.join(z_bg)
-        #z_bg[0] = z_bg[0]+"."+str(Cmpi.rank)
-        t_bg = C.newPyTree(['Base', z_bg])
-    return t_bg
-
-def childMesh(clac, fsmesh, meshID, meshIDChildMeshToBlank):
-    t_bg = None
-    if meshID == meshIDChildMeshToBlank:
-        # Conversion of the background mesh ("light" conversion -> only the volume element types)
-        convObj = FSCGNSConverter(clac=clac, fsmesh=fsmesh)
-        convObj.convert2CGNS(forOverset=True)
-        z_bg = Internal.getZones(convObj.pyTree)[0]
-        z_bg = C.breakConnectivity(z_bg)
-        #z_bg = C.convertArray2NGon(z_bg)
-        #z_bg = T.join(z_bg)
-        #z_bg[0] = z_bg[0]+"."+str(Cmpi.rank)
-        t_bg = C.newPyTree(['Base', z_bg])
-    return t_bg

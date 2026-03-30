@@ -1,20 +1,17 @@
-# Usage: kpython -n2 -t24 holeCutting.py
-import os
-import sys
-
+# Usage: kpython -n2 -t4 howToUseCassiopeeHoleCutting.py
 from FSDataManager import FSClac, FSError, FSDataManager
 
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
-from FSOverset.FSOverset import FSOverset, holeMesh, backgroundMesh
+from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractPyTree, extractActiveSubMesh
 
 offsets = [0.3]
+localDir = './OUTPUT/TEST1/'
 
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
 
 if nGlobalProcs < 2:
-    print("Must be run with at least 2 MPI processes!")
-    sys.exit(os.EX_USAGE)
+    raise ValueError("howToUseCassiopeeHoleCutting must be run with at least 2 MPI processes.")
 
 globalProcID = globalClac.GetProcID()
 meshID = int(globalProcID // (nGlobalProcs / 2))
@@ -22,75 +19,52 @@ meshID = int(globalProcID // (nGlobalProcs / 2))
 clac = FSClac()
 globalClac.DivideIntoGroups(meshID, clac)
 
-discParaDict = {}
-wallBoundaryMarkers = []
 if meshID == 0:
-    meshFilename = "naca_background.h5"
-    meshKeyOriginal = "back_orig"  # the original background mesh
-    meshKeyActive = "back_active"  # the active part of the background mesh
-    discParaDict['boundary treatments'] = [
-        {
-            'treatment type': 'BCFarfield',
-            'boundary markers': [21, 22, 25, 26]
-        },
-        {
-            'treatment type': 'BCSymmetryPlane',
-            'boundary markers': [23, 24]
-        }
-    ]
+    meshFilename = 'naca_background.h5'
+    meshKeyOrig = 'back_orig'  # the original background mesh
+    meshKeyActive = 'back_active'  # the active part of the background mesh
 else:
-    meshFilename = "naca_curvi.h5"
-    meshKeyOriginal = "child"  # the original child mesh
-    meshKeyActive = "child"
-    wallBoundaryMarkers_childmesh = [3]
-    discParaDict['boundary treatments'] = [
-        {
-            'treatment type': 'BCWallViscousAdiabatic',
-            'boundary markers': wallBoundaryMarkers_childmesh
-        },
-        {
-            'treatment type': 'BCOverset',
-            'boundary markers': [2]
-        },
-        {
-            'treatment type': 'BCSymmetryPlane',
-            'boundary markers': [1]
-        }
-    ]
-    wallBoundaryMarkers = wallBoundaryMarkers_childmesh
+    meshFilename = 'naca_curvi.h5'
+    meshKeyOrig = 'naca'
+    meshKeyActive = 'naca'
 
-fsDMObj = FSDataManager(globalClac)
-fsmeshOrig = fsDMObj.GetMesh(meshKeyOriginal, clac, True)
+dm = FSDataManager(globalClac)
+fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
 meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
-# Get active mesh (not used here but useful for CODA computations where the active part is extracted)
-fsmeshActive = fsDMObj.GetMesh(meshKeyActive, clac, True)
+# Get active mesh - useful for CODA computations where the active part is extracted)
+fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
-print("meshID, globalProcID, meshKeyOriginal:", meshID, globalProcID, meshKeyOriginal)
-fsmeshOrig.PrintInfo()
-
-t_hole = holeMesh(
+mask = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
-    paraDict=discParaDict,
     offsets=offsets,
     meshID=meshID,
-    offsetFromBC="BCWall"  # offsetFromBC="BCWall" or "BCOverset" (by default)
+    localDir=localDir,
+    offsetFromBC='BCWall',  # offsetFromBC='BCWall' or 'BCOverset' (by default)
+    check=True
 )
-t_bg = backgroundMesh(clac=clac, fsmesh=fsmeshOrig, meshID=meshID)
-blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, pyTree=t_bg)
 
+pyTree = extractPyTree(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, meshIDTarget=0) # extract background mesh
+blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, pyTree=pyTree) # MeshBlankingMap?
 
 # This could be a time step loop...
 for i in range(0, 1):
 
-    # Maybe transform computational meshes and hole definition meshes first...
-    blankingObj.computeBlanking(t_hole)
+    # 1-update cell nature field with 0 (blanked) and 1 (active)
+    blankingObj.computeBlanking(mask)
+
+    # 2-remove blanked cells
+    extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
 
     fsmeshOrig.ExportMeshTECPLOT(
-        Filename=f"blanking_mesh_{meshID:d}.plt",
-        FileFormat="ASCII",
+        Filename=localDir+'blanking_mesh_%d.plt'%meshID,
+        FileFormat='binary',
         PrefixDatasetName=True
     ) or FSError.PrintAndExit()
 
-    # In case of CODA: extraction of active mesh parts, computation, solution transfer to original complete meshes...
+    fsmeshActive.ExportMeshTECPLOT(
+        Filename=localDir+'blanked_mesh_%d.plt'%meshID,
+        FileFormat='binary',
+        PrefixDatasetName=True
+    ) or FSError.PrintAndExit()

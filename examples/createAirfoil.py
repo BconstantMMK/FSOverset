@@ -41,7 +41,7 @@ Internal.printTree(extFaces)
 bbo = G.bbox(m2)
 xMin, yMin, zMin, xMax, yMax, zMax = bbo
 
-list_bcs = ["BCFarfield","BCSymmetryPlane","BCWall"]
+list_bcs = ["BCOverset","BCSymmetryPlane","BCWallInviscid"]
 for zone_extFaces in Internal.getZones(extFaces):
     print("Creating boundary condition.. ")
     GE = Internal.getNodeFromName(zone_extFaces, 'GridElements')
@@ -64,9 +64,9 @@ for zone_extFaces in Internal.getZones(extFaces):
         if numpy.all(zCoord[EC_reshape[idx]-1]-tol<zMin) or numpy.all(zCoord[EC_reshape[idx]-1]+tol>zMax):
             CODABCType='BCSymmetryPlane'
         elif (numpy.all(xCoord[EC_reshape[idx]-1]+tol>xMax) or numpy.all(xCoord[EC_reshape[idx]-1]-tol<xMin) or numpy.all(yCoord[EC_reshape[idx]-1]+tol>yMax) or numpy.all(yCoord[EC_reshape[idx]-1]-tol<yMin)):
-            CODABCType='BCFarfield'
+            CODABCType='BCOverset'
         elif not(numpy.all(zCoord[EC_reshape[idx]-1]-tol<zMin) or numpy.all(zCoord[EC_reshape[idx]-1]+tol>zMax) or numpy.all(xCoord[EC_reshape[idx]-1]+tol>xMax) or numpy.all(xCoord[EC_reshape[idx]-1]-tol<xMin) or numpy.all(yCoord[EC_reshape[idx]-1]+tol>yMax) or numpy.all(yCoord[EC_reshape[idx]-1]-tol<yMin)):
-            CODABCType="BCWall"
+            CODABCType="BCWallInviscid"
         dictionary_bcs_idx[CODABCType].append(idx)
 
     for CODABCType in list_bcs:
