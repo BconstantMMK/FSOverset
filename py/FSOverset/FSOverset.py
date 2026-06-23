@@ -8,23 +8,32 @@ import Converter.Mpi as Cmpi
 import Generator.PyTree as G
 import Transform.PyTree as T
 import Geom.PyTree as D
+import RigidMotion.PyTree as R
+import CPlot.PyTree as CPlot
+import CPlot.Decorator as Decorator
 
 from FSDataManager import (
-    FSIntArray, FSStringArray,
+    FSIntArray, FSStringArray, FSFloatArray,
     FSUnstructVolumeCellTypes,
     FSDataSpecArray, FSDatasetInfo,
-    FSError, FS_AT_CADGroupID
+    FSError, FS_AT_CADGroupID,
+    FSMeshEnums, FSDataName
 )
 
 import FSOversetBlanking # needed for extractActiveSubMesh and copySolution
 
 from FSCGNSConverter.FSCGNSConverter import FSCGNSConverter
 
+import math
+
 __all__ = [
     'FSOverset', 'generateBlankingMask', 'extractPyTree',
     'generateDiscParasFromMesh', 'generateBCDictFromMesh',
     'extractActiveSubMesh', 'copySolution'
 ]
+
+__DEG2RAD__ = math.pi/180.
+__RAD2DEG__ = 180./math.pi
 
 # ---------------------------------------------------------------------------- #
 # Classes
@@ -163,6 +172,78 @@ def extractPyTree(clac, fsmesh, meshID, meshIDTarget):
         t = C.newPyTree(['Base', z])
     return t
 
+def display(clac, fsmesh, meshID, variables, it=0, displayDict={}, localDir='./', saveTree=False):
+    # get display information
+    colormap = displayDict.get('colormap', 24) # default: jet
+    isoEdges = displayDict.get('isoEdges', 0.) # line width of isolines
+    isoScales = displayDict.get('isoScales', {}) # dict of {varname: [varname, niso, min, max]}
+    ppw = displayDict.get('ppw', 1000) # pixels per height
+    mpl = displayDict.get('mpl', False) # pixels per height
+
+    # automatically set camera information
+    xlim = displayDict['xlim']
+    ylim = displayDict['ylim']
+    zplane = displayDict['zplane']
+    posCam, posEye, dirCam, viewAngle, exportResolution = Decorator.getInfo2DMode(xlim, ylim, zplane, ppw)
+
+    # conversion
+    bcDict = generateBCDictFromMesh(fsmesh)
+    convObj = FSCGNSConverter(clac=clac, fsmesh=fsmesh, bcDict=bcDict, datasets=['State'])
+    convObj.convert2CGNS()
+    zone = Internal.getZones(convObj.pyTree)[0]
+    Cmpi._setProc(zone, Cmpi.rank)
+    zone[0] = '%d_%d'%(meshID, Cmpi.rank)
+
+    listOfMeshID = set(Cmpi.allgather(meshID))
+    listOfMeshID = sorted(listOfMeshID)
+    listOfZones = []
+    for i in listOfMeshID:
+        listOfZones.extend([
+            'MeshID%d'%i,
+            zone if meshID == i else []
+        ])
+    
+    t = C.newPyTree(listOfZones)
+    if saveTree: Cmpi.convertPyTree2File(t, localDir+'solution_it%04d.cgns'%it)
+
+    # force (x,y) plane
+    T._rotate(t, (0,0,0), (1,0,0), -90.) # from (x,z) to (x,y)
+
+    # temporary patch for intra-grid match connection
+    t = Cmpi.allgatherTree(t)
+    if Cmpi.master:
+        listOfZones = []
+        for b in Internal.getBases(t): 
+            zone = T.join(Internal.getZones(b))
+            listOfZones.extend([b[0],zone])
+        t = C.newPyTree(listOfZones)
+    else:
+        t = []
+
+    # display
+    for v in variables:
+        filename = localDir+'%s_it%04d.png'%(v, it)
+        export = CPlot.decorator if mpl else filename
+
+        if v not in isoScales:
+            vmin = Cmpi.getMinValue(t, 'centers:%s'%v)
+            vmax = Cmpi.getMaxValue(t, 'centers:%s'%v)
+            isoScales[v] = [v, 25, vmin, vmax] # default CPlot values
+
+        CPlot.display(t, mode='Scalar', scalarField=v,
+            dim=2, export=export, isoScales=isoScales[v], isoEdges=isoEdges,
+            offscreen=7, bgColor=0, colormap=colormap,
+            viewAngle=viewAngle,
+            posCam=posCam, posEye=posEye, dirCam=dirCam,
+            exportResolution=exportResolution)
+        
+        if mpl and Cmpi.master:
+            fig, ax = Decorator.createSubPlot(box=True, figsize=(7,6), dpi=100, xlim=xlim, ylim=ylim)
+            cbar = Decorator.createColorBar(fig, ax, title=v, discrete=True, nticks=5, labelFormat='%.2f', size='3%')
+            Decorator.savefig(filename, pad=0.1, dpi=200)
+    
+    return None
+
 # ---------------------------------------------------------------------------- #
 # FSOversetBlanking Functions
 # ---------------------------------------------------------------------------- #
@@ -227,6 +308,165 @@ def generateBCDictFromMesh(fsmesh):
     for treatmentType, markers in treatments.items():
         for marker in markers: bcDict[marker] = treatmentType
     return bcDict
+
+def getWallBoundaryMarkers(fsmesh):
+    treatments = getBoundaryTreatmentsFromMesh__(fsmesh)
+    wallMarkers = []
+    for key, value in treatments.items():
+        if 'Wall' in key: wallMarkers.extend(value)
+    return wallMarkers
+
+def initGridVelocity(fsmesh):
+    if not fsmesh.HasUnstructDataset('GridVelocity'):
+        nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
+        gridVelNames = FSStringArray(3)
+        gridVelNames[0] = FSDataName.GridVelocity().X()
+        gridVelNames[1] = FSDataName.GridVelocity().Y()
+        gridVelNames[2] = FSDataName.GridVelocity().Z()
+        gridVelSpecs = FSDataSpecArray(3)
+        gridVelSpecs[0].Velocity()
+        gridVelSpecs[1].Velocity()
+        gridVelSpecs[2].Velocity()
+        gridVels = FSFloatArray(nNodes, 3)
+        gridVels.Fill(0.0)
+        fsmesh.InitUnstructDataset('GridVelocity', FSDatasetInfo(gridVelNames, gridVelSpecs, FSMeshEnums.CT_Node), gridVels)
+
+    return None
+
+def copyGrid2GridInit(fsmesh=None, mask=None):
+    if fsmesh is not None:
+        if not fsmesh.HasUnstructDataset('UndeformedCoordinates'):
+            coordsDataset = fsmesh.GetUnstructDataset('Coordinates')
+            coords = coordsDataset.GetValues()
+            undeformedNames = FSStringArray(3)
+            undeformedNames[0] = FSDataName.Coordinates().X()
+            undeformedNames[1] = FSDataName.Coordinates().Y()
+            undeformedNames[2] = FSDataName.Coordinates().Z()
+            undeformedSpecs = FSDataSpecArray(3)
+            undeformedSpecs[0].Length()
+            undeformedSpecs[1].Length()
+            undeformedSpecs[2].Length()
+            undeformed = coords
+            fsmesh.InitUnstructDataset('UndeformedCoordinates', FSDatasetInfo(undeformedNames, undeformedSpecs, FSMeshEnums.CT_Node), undeformed)
+    
+    if mask is not None:
+        for meshID in mask:
+            z = mask[meshID]
+            R._copyGrid2GridInit(z, mode=1)
+
+    return None
+
+def copyGridInit2Grid(fsmesh):
+    refCoords = fsmesh.GetUnstructDataset('UndeformedCoordinates').GetValues()
+    gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues()
+    numpy.copyto(
+            numpy.array(gridCoords.Buffer(), copy=False),
+            numpy.array(refCoords.Buffer(), copy=False),
+            casting='same_kind'
+    )
+
+    return None
+
+def evalPosition(fsmesh=None, mask=None, time=0, motionDict=None):
+    tx, ty, tz = motionDict['transl_speed']
+    cx, cy, cz = motionDict['axis_pnt']
+    kx, ky, kz = motionDict['axis_vct']
+    omega = motionDict['angular_frq']
+
+    if 'ampl_angle' in motionDict: # oscillation
+        alphaMean = motionDict['mean_angle']
+        alphaAmpl = motionDict['ampl_angle']
+        alpha = alphaMean + alphaAmpl * math.sin(omega * time)
+    else: # rotation
+        alpha = omega * time * __RAD2DEG__
+    
+    cosalpha = math.cos(alpha * __DEG2RAD__)
+    sinalpha = math.sin(alpha * __DEG2RAD__)
+
+    if mask is not None:
+        for meshID in mask:
+            z = mask[meshID]
+            R._copyGridInit2Grid(z)
+            T._rotate(z, (cx,cy,cz), (kx,ky,kz), alpha, vectors=[])
+            T._translate(z, (tx*time, ty*time, tz*time))
+            
+    if fsmesh is not None:
+        nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
+        copyGridInit2Grid(fsmesh)
+        gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues()
+
+        for node in range(nNodes):
+            x = gridCoords[3 * node]
+            y = gridCoords[3 * node + 1]
+            z = gridCoords[3 * node + 2]
+
+            # position vector
+            cmx = x - cx
+            cmy = y - cy
+            cmz = z - cz
+
+            # k x CM
+            kcmx = ky * cmz - kz * cmy
+            kcmy = kz * cmx - kx * cmz
+            kcmz = kx * cmy - ky * cmx
+
+            # k . CM
+            kcm = kx * cmx + ky * cmy + kz * cmz
+
+            # rotation (Rodrigues' rotation formula) + translation
+            x = (cx + cosalpha * cmx + (1 - cosalpha) * kcm * kx + sinalpha * kcmx) + tx
+            y = (cy + cosalpha * cmy + (1 - cosalpha) * kcm * ky + sinalpha * kcmy) + ty
+            z = (cz + cosalpha * cmz + (1 - cosalpha) * kcm * kz + sinalpha * kcmz) + tz
+
+            gridCoords[3 * node] = x
+            gridCoords[3 * node + 1] = y
+            gridCoords[3 * node + 2] = z
+
+    return None
+
+def evalGridSpeed(fsmesh=None, time=0, motionDict=None):
+    tx, ty, tz = motionDict['transl_speed']
+    cx, cy, cz = motionDict['axis_pnt']
+    kx, ky, kz = motionDict['axis_vct']
+    omega = motionDict['angular_frq']
+
+    if 'ampl_angle' in motionDict: # oscillation
+        alphaAmpl = motionDict['ampl_angle']
+        alphaDot = omega * alphaAmpl * math.cos(omega * time) # derivative of alpha w.r.t to time
+        alphaDot *= __DEG2RAD__ # radians per sec.
+    else: # rotation
+        alphaDot = omega
+
+    if fsmesh is not None:
+        nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
+        gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues() # grid has already been moved
+        gridVels = fsmesh.GetUnstructDataset('GridVelocity').GetValues()
+        
+        for node in range(nNodes):
+            x = gridCoords[3 * node]
+            y = gridCoords[3 * node + 1]
+            z = gridCoords[3 * node + 2]
+
+            # position vector
+            cmx = x - cx
+            cmy = y - cy
+            cmz = z - cz
+
+            # k x CM
+            kcmx = ky * cmz - kz * cmy
+            kcmy = kz * cmx - kx * cmz
+            kcmz = kx * cmy - ky * cmx
+
+            # grid speed
+            vx = tx + alphaDot * kcmx
+            vy = ty + alphaDot * kcmy
+            vz = tz + alphaDot * kcmz
+
+            gridVels[3 * node] = vx
+            gridVels[3 * node + 1] = vy
+            gridVels[3 * node + 2] = vz
+
+    return None
 
 # ---------------------------------------------------------------------------- #
 # Deprecated Functions

@@ -33,9 +33,9 @@ for zloc in [z, bc1]:
     T._contract(zloc, (0,0,0), (1,0,0), (0,1,0), dz)
 
 # Add BCs to zone
-C._addBC2Zone(z, 'BCFarfield', 'BCFarfield', subzone=bc1)
-C._addBC2Zone(z, 'BCSymmetryPlane', 'BCSymmetryPlane', subzone=bc2)
-C._addBC2Zone(z, 'BCSymmetryPlane', 'BCSymmetryPlane', subzone=bc3)
+C._addBC2Zone(z, 'BCFarfield0', 'BCFarfield', subzone=bc1)
+C._addBC2Zone(z, 'BCSymmetryPlane0', 'BCSymmetryPlane', subzone=bc2)
+C._addBC2Zone(z, 'BCSymmetryPlane1', 'BCSymmetryPlane', subzone=bc3)
 
 t = C.newPyTree(['Base', z])
 
