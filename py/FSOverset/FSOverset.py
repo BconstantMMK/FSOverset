@@ -41,10 +41,11 @@ __RAD2DEG__ = 180./math.pi
 
 class FSOverset:
 
-    def __init__(self, clac, fsmesh, pyTree=None):
+    def __init__(self, clac, fsmesh, meshID, meshIDTarget, pyTree=None):
         self.clac = clac
         self.fsmesh = fsmesh
-        self.pyTree = pyTree
+
+        self.pyTree = pyTree if pyTree is not None else extractPyTree(clac=clac, fsmesh=fsmesh, meshID=meshID, meshIDTarget=meshIDTarget)
         self.cellNName = 'cellN' # cellN located at the nodes 
 
         self.fsVolumeCellTypes = FSIntArray(0)
@@ -62,7 +63,7 @@ class FSOverset:
             for meshID in tb:
                 bodies = [[tb[meshID]]]
                 self.pyTree = X.blankCellsTri(self.pyTree, bodies, [], blankingType=blankingType, cellNName=self.cellNName)
-
+             
             # Create an FSDM dataset for cellN obtained in Cassiopee
             cellNList = Internal.getNodesFromName(self.pyTree, self.cellNName)
             cellN = [n_cellN[1] for n_cellN in cellNList]
@@ -90,8 +91,8 @@ class FSOverset:
 # ---------------------------------------------------------------------------- #
 # FSOverset Functions
 # ---------------------------------------------------------------------------- #
-
-def generateBlankingMask(clac, fsmesh, offsets, meshID, meshIDBackground=0, offsetFromBC='BCOverset', dim=3, localDir='./', check=False):
+#dictOfOffsets : mandatory (can be zero) to specify if a BC defines a blanking mask or not.
+def generateBlankingMask(clac, fsmesh, meshID, dictOfOffsets, offsetFromBC='BCOverset', dim=3, localDir='./', check=False):
     """Generate a blanking mask from a specified BC"""
     validBCNames = ['BCOverset', 'BCWall']
     if offsetFromBC not in validBCNames:
@@ -100,36 +101,33 @@ def generateBlankingMask(clac, fsmesh, offsets, meshID, meshIDBackground=0, offs
     tb = None
 
     # Conversion of the curvilinear mesh of the body ('standard' conversion)
-    if meshID != meshIDBackground:
+    if meshID in dictOfOffsets:
         bcDict = generateBCDictFromMesh(fsmesh)
-        if fsmesh.HasUnstructDataset('UndeformedCoordinates'): coordsName = 'UndeformedCoordinates'
-        else: coordsName = 'Coordinates'
-        convObj = FSCGNSConverter(clac=clac, fsmesh=fsmesh, bcDict=bcDict, coordsName=coordsName, datasets=[])
-        convObj.convert2CGNS()
+        if any(bcDict[bc].startswith(offsetFromBC) for bc in bcDict):
+            if fsmesh.HasUnstructDataset('UndeformedCoordinates'): coordsName = 'UndeformedCoordinates'
+            else: coordsName = 'Coordinates'
+            convObj = FSCGNSConverter(clac=clac, fsmesh=fsmesh, bcDict=bcDict, coordsName=coordsName, datasets=[])
+            convObj.convert2CGNS()
 
-        z_body = Internal.getZones(convObj.pyTree)[0]
-        z_body[0] += f'.{Cmpi.rank:d}'
+            z_body = Internal.getZones(convObj.pyTree)[0]
+            z_body[0] += f'.{Cmpi.rank:d}'
+            C._deleteFlowSolutions__(z_body)
 
-        # Extract the BC
-        wall = C.extractBCOfType(z_body, offsetFromBC)
-        C._deleteFlowSolutions__(wall)
-        elts = Internal.getNodesFromType(wall, 'Elements_t')
-        for elt in elts:
-            if elt[0].startswith('GridElements'):
-                Internal._rmNode(wall, elt)
-        tb = C.convertArray2Tetra(wall)
-        if tb:
-            # param_solver = Internal.getNodeFromType(tb, 'UserDefinedData_t')
-            # proc_safe = Internal.getNodeFromName(param_solver, 'proc')[1][0][0]
-            # tb = T.join(tb)
-            # tb = Internal.getZones(tb)[0]
-            # param_solver = Internal.newUserDefinedData('param', parent=tb)
-            # Internal.newDataArray('.Solver#Param', parent=param_solver, value=proc_safe)
-            # Internal.newDataArray('meshID', parent=param_solver, value=meshID)
-            tb = T.join(tb)
-            Cmpi._setProc(tb, Cmpi.rank)
-            param = Internal.getNodeFromName1(tb, '.Solver#Param')
-            Internal.newDataArray('meshID', parent=param, value=meshID)
+            # Extract the BC
+            wall = C.extractBCOfType(z_body, offsetFromBC)
+            del z_body
+            if wall != []:        
+                elts = Internal.getNodesFromType(wall, 'Elements_t')
+                for elt in elts:
+                    if elt[0].startswith('GridElements'):
+                        Internal._rmNode(wall, elt)
+                tb = C.convertArray2Tetra(wall)
+                del wall
+
+                tb = T.join(tb)
+                Cmpi._setProc(tb, Cmpi.rank)
+                param = Internal.getNodeFromName1(tb, '.Solver#Param')
+                Internal.newDataArray('meshID', parent=param, value=meshID)
 
     # Create bodies per meshID
     tb = Cmpi.allgatherZones(tb)
@@ -147,15 +145,20 @@ def generateBlankingMask(clac, fsmesh, offsets, meshID, meshIDBackground=0, offs
     bodies_offset = bodies.copy()
     sign_offset = 1. if offsetFromBC == 'BCWall' else -1.
     for meshID in bodies_offset:
-        BB = G.bbox(bodies_offset[meshID])
-        xmin = BB[0]; ymin = BB[1]; zmin = BB[2]
-        xmax = BB[3]; ymax = BB[4]; zmax = BB[5]
-        dmax = max((xmax-xmin), (ymax-ymin), (zmax-zmin))
-        ppul = 50./dmax
-        if Cmpi.master: print('generateBlankingMask: generating offset (meshID=%d) with ppul=%f and dmax=%f'%(meshID, ppul, dmax))
-        bodies_offset[meshID] = D.offsetSurface(bodies_offset[meshID], offset=sign_offset*offsets[meshID-1], pointsPerUnitLength=ppul, algo=0, dim=dim)[0]
-        if Cmpi.master and check: C.convertPyTree2File(bodies_offset[meshID], localDir+'wall_offset_%s.plt' %meshID)
-        bodies_offset[meshID] = C.convertArray2Tetra(bodies_offset[meshID])
+        offsetdist = dictOfOffsets[meshID]
+        if offsetdist > 0.:
+            BB = G.bbox(bodies_offset[meshID])
+            xmin = BB[0]; ymin = BB[1]; zmin = BB[2]
+            xmax = BB[3]; ymax = BB[4]; zmax = BB[5]
+            dmax = max((xmax-xmin), (ymax-ymin), (zmax-zmin))
+            ppul = 50./dmax
+            if Cmpi.master: print('generateBlankingMask: generating offset (meshID=%d) with ppul=%f and dmax=%f'%(meshID, ppul, dmax))
+            bodies_offset[meshID] = D.offsetSurface(bodies_offset[meshID], offset=sign_offset*dictOfOffsets[meshID], pointsPerUnitLength=ppul, algo=0, dim=dim)[0]
+            if Cmpi.master and check: C.convertPyTree2File(bodies_offset[meshID], localDir+'wall_offset_%s.plt' %meshID)
+            bodies_offset[meshID] = C.convertArray2Tetra(bodies_offset[meshID])
+        else: 
+            bodies_offset[meshID] = C.convertArray2Tetra(bodies[meshID])
+
         bodies_offset[meshID] = G.close(bodies_offset[meshID])
 
     return bodies_offset
@@ -164,7 +167,7 @@ def extractPyTree(clac, fsmesh, meshID, meshIDTarget):
     """Extract a pyTree mesh from a fsmesh based on meshID"""
     t = None
     if meshID == meshIDTarget:
-        # Conversion of the background mesh ('light' conversion -> only the volume element types)
+        # Conversion of the blanked mesh ('light' conversion -> only the volume element types)
         convObj = FSCGNSConverter(clac=clac, fsmesh=fsmesh)
         convObj.convert2CGNS(forOverset=True)
         z = Internal.getZones(convObj.pyTree)[0]

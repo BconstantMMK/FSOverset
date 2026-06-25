@@ -53,21 +53,20 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 # Get active mesh - useful for CODA computations where the active part is extracted
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
+dictOfOffsets = {}
+dictOfOffsets[1] = offsets[0]
+dictOfOffsets[2] = offsets[1]
+
 mask = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
-    offsets=offsets,
+    dictOfOffsets=dictOfOffsets,
     meshID=meshID,
     localDir=localDirOut,
     offsetFromBC='BCWall',  # offsetFromBC='BCWall' or 'BCOverset' (by default)
     check=True
 )
-
-pyTree0 = extractPyTree(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, meshIDTarget=0) # extract background mesh
-pyTree2 = extractPyTree(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, meshIDTarget=2) # extract cylinder mesh
-
-blankingObj0 = FSOverset(clac=clac, fsmesh=fsmeshOrig, pyTree=pyTree0)
-blankingObj2 = FSOverset(clac=clac, fsmesh=fsmeshOrig, pyTree=pyTree2)
-
+blankingObj0 = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, meshIDTarget=0)
+blankingObj2 = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, meshIDTarget=2)
 mask0 = mask.copy()
 mask2 = mask.copy(); mask2.pop(2) # remove the mask around the cylinder (meshID=2)
 
