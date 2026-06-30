@@ -1,3 +1,4 @@
+# Usage: kpython -n3 -t4 generateBlankingMask_m3.py
 # No offset
 from FSDataManager import FSClac, FSError, FSDataManager
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
@@ -5,7 +6,6 @@ from FSOverset.FSOverset import generateBlankingMask
 import KCore.test as Ktest
 
 localDirIn = './INPUT/'
-localDirOut = './OUTPUT/'
 
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()

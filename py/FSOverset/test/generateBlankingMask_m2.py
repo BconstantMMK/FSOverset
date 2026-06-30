@@ -1,4 +1,4 @@
-# Usage: kpython -n3 -t4 howToUseCassiopeeHoleCuttingTwoBodies.py
+# Usage: kpython -n3 -t4 generateBlankingMask_m2.py
 from FSDataManager import FSClac, FSError, FSDataManager
 
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
@@ -8,7 +8,6 @@ import KCore.test as Ktest
 offsets = [0.2,0.05] # case in which the blanked areas of the two child meshes do not intersect, but the cylinder child mesh overset border intersects the blanked area of the naca child mesh
 
 localDirIn = './INPUT/'
-localDirOut = './OUTPUT/'
 
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()

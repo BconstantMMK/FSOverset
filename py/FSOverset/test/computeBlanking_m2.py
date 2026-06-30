@@ -1,4 +1,4 @@
-# Usage: kpython -n3 -t4 howToUseCassiopeeHoleCuttingTwoBodiesMeshIntersection.py
+# Usage: kpython -n3 -t4 computeBlanking_m2.py
 from FSDataManager import FSClac, FSError, FSDataManager
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 from FSOverset.FSOverset import FSOverset, generateBlankingMask

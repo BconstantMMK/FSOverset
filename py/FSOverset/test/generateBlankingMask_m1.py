@@ -1,4 +1,4 @@
-# Usage: kpython -n2 -t4 howToUseCassiopeeHoleCutting.py
+# Usage: kpython -n2 -t4 generateBlankingMask_m1.py
 from FSDataManager import FSClac, FSError, FSDataManager
 
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
@@ -7,7 +7,6 @@ import KCore.test as Ktest
 
 offsets = [0.3]
 localDirIn = './INPUT/'
-localDirOut = './OUTPUT/'
 
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
