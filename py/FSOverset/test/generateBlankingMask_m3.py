@@ -11,7 +11,7 @@ globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all proces
 nGlobalProcs = globalClac.GetNProcs()
 
 if nGlobalProcs < 3:
-    raise ValueError("howToUseCassiopeeHoleCuttingTwoBodies must be run with at least 3 MPI processes.")
+    raise ValueError("generateBlankingMask must be run with at least 3 MPI processes.")
 
 globalProcID = globalClac.GetProcID()
 meshID = int(globalProcID // (nGlobalProcs / 3))
@@ -49,10 +49,7 @@ mask = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
     dictOfOffsets=dictOfOffsets,
     meshID=meshID,
-    localDir=localDirOut,
     offsetFromBC='BCWall',  
-    check=True
-)
+    check=False)
 
-for item in mask:
-    Ktest.testT(mask[item],item+ globalProcID*len(mask))
+for item in mask: Ktest.testT(mask[item],item)

@@ -13,7 +13,7 @@ globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all proces
 nGlobalProcs = globalClac.GetNProcs()
 
 if nGlobalProcs < 2:
-    raise ValueError("howToUseCassiopeeHoleCutting must be run with at least 2 MPI processes.")
+    raise ValueError("generateBlankedObj_m1.py must be run with at least 2 MPI processes.")
 
 globalProcID = globalClac.GetProcID()
 meshID = int(globalProcID // (nGlobalProcs / 2))
@@ -30,10 +30,6 @@ else:
     meshKeyOrig = 'naca'
     meshKeyActive = 'naca'
 
-dictOfOffsets = {}
-dictOfOffsets[1] = offsets[0]
-dictOfOffsets[0] = 0.01 # there is no BCWall so it won t be taken into account
-
 dm = FSDataManager(globalClac)
 fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
 meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
@@ -42,7 +38,9 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 # Get active mesh - useful for CODA computations where the active part is extracted
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
-blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, meshIDTarget=0)
+dictOfBlanking={}
+dictOfBlanking[0] = [1]
+blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, dictOfBlanking=dictOfBlanking)
 t = blankedObj.pyTree
-if t is None: t = C.newPyTree(["DUMMY_%d" %meshID])
+if t is None: t = C.newPyTree(["DUMMY_%d"%meshID])
 Ktest.testT(t, meshID)

@@ -15,7 +15,7 @@ globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all proces
 nGlobalProcs = globalClac.GetNProcs()
 
 if nGlobalProcs < 3:
-    raise ValueError("howToUseCassiopeeHoleCutting must be run with at least 2 MPI processes.")
+    raise ValueError("howToUseCassiopeeHoleCutting must be run with at least 3 MPI processes.")
 
 globalProcID = globalClac.GetProcID()
 meshID = int(globalProcID // (nGlobalProcs / 3))
@@ -36,11 +36,6 @@ elif meshID == 2:
     meshKeyOrig = 'cyl_orig' # now the cylinder is also blanked
     meshKeyActive = 'cyl_active'
 
-dictOfOffsets = {}
-dictOfOffsets[1] = offsets[0]
-dictOfOffsets[2] = offsets[1]
-dictOfOffsets[0] = 0.01 # there is no BCWall so it won t be taken into account
-
 dm = FSDataManager(globalClac)
 fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
 meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
@@ -49,15 +44,12 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 # Get active mesh - useful for CODA computations where the active part is extracted
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
+dictOfBlanking={}
+dictOfBlanking[0] = [1,2]
+dictOfBlanking[2] = [1]
 
-for meshIDTarget in [0,2]:
-    #pyTree0 = extractPyTree(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, meshIDTarget=meshIDTarget) # extract background mesh
-    #blankingObj0 = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, meshIDTarget=meshIDTarget, pyTree=pyTree0)
-    blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, meshIDTarget=meshIDTarget)
-    t = blankedObj.pyTree        
-
-    if meshIDTarget==meshID:
-        C.convertPyTree2File(t, 'blankedObj_meshID%d_%d.cgns'%(meshID, rank))
-    if t is None: t = C.newPyTree(["DUMMY_%d_%d"%(meshIDTarget, rank)])
-    notest = rank+meshIDTarget*nGlobalProcs
-    Ktest.testT(t, notest)
+blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, dictOfBlanking=dictOfBlanking)
+t = blankedObj.pyTree        
+if t is None: t = C.newPyTree(["DUMMY_%d"%meshID])
+if meshID == globalProcID:
+    Ktest.testT(t,meshID)

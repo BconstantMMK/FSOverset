@@ -41,11 +41,16 @@ __RAD2DEG__ = 180./math.pi
 
 class FSOverset:
 
-    def __init__(self, clac, fsmesh, meshID, meshIDTarget, pyTree=None):
+    def __init__(self, clac, fsmesh, meshID, dictOfBlanking={}):
         self.clac = clac
         self.fsmesh = fsmesh
+        self.meshID = meshID
+        self.dictOfBlanking = dictOfBlanking
+        self.pyTree = None
 
-        self.pyTree = pyTree if pyTree is not None else extractPyTree(clac=clac, fsmesh=fsmesh, meshID=meshID, meshIDTarget=meshIDTarget)
+        if meshID in dictOfBlanking:
+            if len(dictOfBlanking[meshID])>0:
+                self.pyTree = extractPyTree(clac=clac, fsmesh=fsmesh)
         self.cellNName = 'cellN' # cellN located at the nodes 
 
         self.fsVolumeCellTypes = FSIntArray(0)
@@ -53,17 +58,22 @@ class FSOverset:
             if self.fsmesh.HasCellType(cellType):
                 self.fsVolumeCellTypes.Append(cellType)
 
-    def computeBlanking(self, tb, blankingType='center_in', dim=3):
+    def computeBlanking(self, dictOfMasks, blankingType='center_in', dim=3):
         validBlankingTypes = ['center_in', 'node_in', 'cell_intersect']
         if blankingType not in validBlankingTypes:
             raise ValueError("computeBlanking: invalid blankingType (%s). Possible values are %s"%(blankingType, validBlankingTypes))
         
+        meshIDTarget = self.meshID
+        dictOfBlanking = self.dictOfBlanking
         if self.pyTree is not None:
             C._deleteEmptyZones(self.pyTree)
-            for meshID in tb:
-                bodies = [[tb[meshID]]]
-                self.pyTree = X.blankCellsTri(self.pyTree, bodies, [], blankingType=blankingType, cellNName=self.cellNName)
-             
+
+            bodies = []
+            nbMasks = len(dictOfBlanking[meshIDTarget])   
+            for maskID in dictOfBlanking[meshIDTarget]:
+                bodiesL = Internal.getZones(dictOfMasks[maskID])
+                self.pyTree = X.blankCellsTri(self.pyTree, [bodiesL], [], blankingType=blankingType, cellNName=self.cellNName) 
+  
             # Create an FSDM dataset for cellN obtained in Cassiopee
             cellNList = Internal.getNodesFromName(self.pyTree, self.cellNName)
             cellN = [n_cellN[1] for n_cellN in cellNList]
@@ -131,48 +141,47 @@ def generateBlankingMask(clac, fsmesh, meshID, dictOfOffsets, offsetFromBC='BCOv
 
     # Create bodies per meshID
     tb = Cmpi.allgatherZones(tb)
-    if Cmpi.master and check: C.convertPyTree2File(tb, localDir+'wall_%d.plt'%meshID)
+    if Cmpi.master and check: C.convertPyTree2File(tb, localDir+'wall.plt')
     bodies = {}
     for zone in Internal.getZones(tb):
-        meshID = Internal.getNodeFromName(zone,'meshID')[1][0]
-        if meshID not in bodies.keys():
-            bodies[meshID] = zone
+        meshID_l = Internal.getNodeFromName(zone,'meshID')[1][0]
+        if meshID_l not in bodies.keys():
+            bodies[meshID_l] = zone
         else:
-           bodies[meshID] = T.join(bodies[meshID],zone)
-           bodies[meshID] = G.close(bodies[meshID])
+           bodies[meshID_l] = T.join(bodies[meshID_l],zone)
+           bodies[meshID_l] = G.close(bodies[meshID_l])
 
     # Create offset bodies per meshID
     bodies_offset = bodies.copy()
+
     sign_offset = 1. if offsetFromBC == 'BCWall' else -1.
-    for meshID in bodies_offset:
-        offsetdist = dictOfOffsets[meshID]
+    for meshID_l in bodies_offset:
+        offsetdist = dictOfOffsets[meshID_l]
         if offsetdist > 0.:
-            BB = G.bbox(bodies_offset[meshID])
+            BB = G.bbox(bodies_offset[meshID_l])
             xmin = BB[0]; ymin = BB[1]; zmin = BB[2]
             xmax = BB[3]; ymax = BB[4]; zmax = BB[5]
             dmax = max((xmax-xmin), (ymax-ymin), (zmax-zmin))
             ppul = 50./dmax
-            if Cmpi.master: print('generateBlankingMask: generating offset (meshID=%d) with ppul=%f and dmax=%f'%(meshID, ppul, dmax))
-            bodies_offset[meshID] = D.offsetSurface(bodies_offset[meshID], offset=sign_offset*dictOfOffsets[meshID], pointsPerUnitLength=ppul, algo=0, dim=dim)[0]
-            if Cmpi.master and check: C.convertPyTree2File(bodies_offset[meshID], localDir+'wall_offset_%s.plt' %meshID)
-            bodies_offset[meshID] = C.convertArray2Tetra(bodies_offset[meshID])
+            if Cmpi.master: print('generateBlankingMask: generating offset (meshID=%d) with ppul=%f and dmax=%f'%(meshID_l, ppul, dmax))
+            bodies_offset[meshID_l] = D.offsetSurface(bodies_offset[meshID_l], offset=sign_offset*dictOfOffsets[meshID_l], pointsPerUnitLength=ppul, algo=0, dim=dim)[0]
+            if Cmpi.master and check: C.convertPyTree2File(bodies_offset[meshID_l], localDir+'wall_offset_%s.plt' %meshID_l)
+            bodies_offset[meshID_l] = C.convertArray2Tetra(bodies_offset[meshID_l])
         else: 
-            bodies_offset[meshID] = C.convertArray2Tetra(bodies[meshID])
+            bodies_offset[meshID_l] = C.convertArray2Tetra(bodies[meshID_l])
 
-        bodies_offset[meshID] = G.close(bodies_offset[meshID])
+        bodies_offset[meshID_l] = G.close(bodies_offset[meshID_l])
 
     return bodies_offset
 
-def extractPyTree(clac, fsmesh, meshID, meshIDTarget):
-    """Extract a pyTree mesh from a fsmesh based on meshID"""
-    t = None
-    if meshID == meshIDTarget:
-        # Conversion of the blanked mesh ('light' conversion -> only the volume element types)
-        convObj = FSCGNSConverter(clac=clac, fsmesh=fsmesh)
-        convObj.convert2CGNS(forOverset=True)
-        z = Internal.getZones(convObj.pyTree)[0]
-        z = C.breakConnectivity(z)
-        t = C.newPyTree(['Base', z])
+def extractPyTree(clac, fsmesh):
+    """Extract a pyTree mesh from a fsmesh"""
+    # Conversion of the blanked mesh ('light' conversion -> only the volume element types)
+    convObj = FSCGNSConverter(clac=clac, fsmesh=fsmesh)
+    convObj.convert2CGNS(forOverset=True)
+    z = Internal.getZones(convObj.pyTree)[0]
+    z = C.breakConnectivity(z)
+    t = C.newPyTree(['Base', z])
     return t
 
 def display(clac, fsmesh, meshID, variables, it=0, displayDict={}, localDir='./', saveTree=False):
