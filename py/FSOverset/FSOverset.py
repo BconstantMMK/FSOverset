@@ -68,12 +68,10 @@ class FSOverset:
         if self.pyTree is not None:
             C._deleteEmptyZones(self.pyTree)
 
-            bodies = []
-            nbMasks = len(dictOfBlanking[meshIDTarget])   
             for maskID in dictOfBlanking[meshIDTarget]:
                 bodiesL = Internal.getZones(dictOfMasks[maskID])
                 self.pyTree = X.blankCellsTri(self.pyTree, [bodiesL], [], blankingType=blankingType, cellNName=self.cellNName) 
-  
+
             # Create an FSDM dataset for cellN obtained in Cassiopee
             cellNList = Internal.getNodesFromName(self.pyTree, self.cellNName)
             cellN = [n_cellN[1] for n_cellN in cellNList]

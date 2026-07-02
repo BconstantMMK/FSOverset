@@ -12,7 +12,6 @@ from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 import math
 
 # overset settings
-offsets = [0.3]
 offsetFromBC = 'BCWall'
 
 # mesh settings
@@ -31,8 +30,8 @@ omega = 2 * k * Uinf / chord # angular frequency
 period = 2 * math.pi / omega # oscillatory period
 
 # solver settings
-TSOP = 200 # time steps per period (resp. revolution)
-nperiod = 1 # number of periods (resp. revolutions)
+TSOP = 200 # time steps per oscillatory period
+nperiod = 1 # number of oscillatory periods
 targetResidualReduction = 1.0e-8
 maximumNumberOfIterations = 200
 
@@ -44,7 +43,7 @@ motionDict = {
     'transl_speed': [tx, ty, tz],
     'axis_pnt': [cx, cy, cz],
     'axis_vct': [kx, ky, kz],
-    'angular_frq': omega,
+    'angular_frq': omega
 }
 
 displayDict = {
@@ -153,8 +152,21 @@ if meshID == 0:
     meshKeyActive = 'back_active'  # the active part of the background mesh
 else:
     meshFilename = localDirIn+'naca.h5'
-    meshKeyOriginal = 'naca'
-    meshKeyActive = 'naca'
+    meshKeyOriginal = 'naca_orig'
+    meshKeyActive = 'naca_active'
+
+## ====================================
+## Set up blanking data - user defined
+## ====================================
+dictOfOffsets={}
+dictOfOffsets[1]=0.3
+
+dictOfBlanking = {}
+dictOfBlanking[0]=[1]
+# MANDATORY to set to 'none' for non-blanked meshes for extractActiveSubMesh to work properly
+if meshID not in dictOfBlanking:
+   meshKeyOriginal = 'none'
+   meshKeyActive = 'none'
 
 ## ====================================
 ## Create Data Manager & set Original/Active
@@ -162,31 +174,25 @@ else:
 dm = FSDataManager(globalClac)
 
 fsmeshOriginal = dm.GetMesh(meshKeyOriginal, localClac, True)
-fsmeshActive = dm.GetMesh(meshKeyActive, localClac, True)
-
 meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=True)
 fsmeshOriginal.DoOps(meshOps) or FSError.PrintAndExit()
 
-if meshID != 0: 
-    meshKeyOriginal = 'none'
-    meshKeyActive = 'none'
+# Get active mesh - useful for CODA computations where the active part is extracted
+fsmeshActive = dm.GetMesh(meshKeyActive, localClac, True)
 
-## ====================================
-## Set up blanking & overset
-## ====================================
-mask = generateBlankingMask(
+#blanking objs creation
+dictOfMasks = generateBlankingMask(
     clac=localClac, fsmesh=fsmeshOriginal,
-    offsets=offsets,
+    dictOfOffsets=dictOfOffsets,
     meshID=meshID,
     localDir=localDirOut,
     offsetFromBC=offsetFromBC,
-    check=True
-)
+    check=False)
+blankingObj = FSOverset(clac=localClac, fsmesh=fsmeshOriginal, meshID=meshID, dictOfBlanking=dictOfBlanking)
 
-pyTree = extractPyTree(clac=localClac, fsmesh=fsmeshOriginal, meshID=meshID, meshIDTarget=0) # extract background mesh
-blankingObj = FSOverset(clac=localClac, fsmesh=fsmeshOriginal, pyTree=pyTree)
-blankingObj.computeBlanking(mask)
-extractActiveSubMesh(dm, meshKeyOriginal, meshKeyActive)
+# il faut le mettre 1 fois pour initialiser le fsmeshactive pour creer le local numbering
+blankingObj.computeBlanking(dictOfMasks=dictOfMasks)
+extractActiveSubMesh(dm, meshKeyOriginal, meshKeyActive) 
 
 ## ====================================
 ## Set up CODA Dicts & Settings
@@ -243,27 +249,29 @@ iterationCallbacksOuter = StopNumIterations(1) + monitorIntegralsCallbacks
 
 dataLog = FSDataLog(globalClac)
 
+# fsmesh in relative motion
 if meshID != 0:
     initGridVelocity(fsmeshOriginal)
-    copyGrid2GridInit(fsmeshOriginal, mask)
+    copyGrid2GridInit(fsmeshOriginal, dictOfMasks)
 else:
-    copyGrid2GridInit(None, mask)
+    copyGrid2GridInit(None, dictOfMasks)
 
 ## ====================================
 ## Compute loop
 ## ====================================
+
 for i in range(niter):
     time += time_step
 
     # update grid coordinates and grid velocities
     if meshID != 0:
-        evalPosition(fsmeshOriginal, mask, time, motionDict=motionDict)
+        evalPosition(fsmeshOriginal, dictOfMasks, time, motionDict=motionDict)
         evalGridSpeed(fsmeshOriginal, time, motionDict=motionDict)
     else:
-        evalPosition(None, mask, time, motionDict=motionDict)
+        evalPosition(None, dictOfMasks, time, motionDict=motionDict)
 
-    # update blanking
-    blankingObj.computeBlanking(mask)
+    # update blanking    
+    blankingObj.computeBlanking(dictOfMasks=dictOfMasks)
     extractActiveSubMesh(dm, meshKeyOriginal, meshKeyActive)
 
     # update CODA settings
@@ -287,7 +295,7 @@ for i in range(niter):
     copySolution(dm, meshKeyOriginal, meshKeyActive)
 
     # export image with Cassiopee
-    display(globalClac, fsmeshActive, meshID, ['State.Density'], it=i+1, displayDict=displayDict, localDir=localDirOut, saveTree=True)
+    #display(globalClac, fsmeshActive, meshID, ['State.Density'], it=i+1, displayDict=displayDict, localDir=localDirOut, saveTree=True)
 
 # export flow solution
 fsmeshActive.ExportMeshHDF5(HDF5Filename=localDirOut+'fsmeshActive_meshID%d_iter%d.h5'%(meshID, i+1), FilePerProcess=False) or FSError.PrintAndExit()

@@ -2,9 +2,8 @@
 from FSDataManager import FSClac, FSError, FSDataManager
 
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
-from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractPyTree, extractActiveSubMesh
+from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractActiveSubMesh
 
-offsets = [0.3]
 localDirIn = './INPUT/'
 localDirOut = './OUTPUT/TEST1/'
 
@@ -29,6 +28,7 @@ else:
     meshKeyOrig = 'naca'
     meshKeyActive = 'naca'
 
+
 dm = FSDataManager(globalClac)
 fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
 meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
@@ -37,23 +37,26 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 # Get active mesh - useful for CODA computations where the active part is extracted
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
+dictOfOffsets={}
+dictOfOffsets[1] = 0.3
 mask = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
-    offsets=offsets,
+    dictOfOffsets=dictOfOffsets,
     meshID=meshID,
     localDir=localDirOut,
-    offsetFromBC='BCWall',  # offsetFromBC='BCWall' or 'BCOverset' (by default)
-    check=True
-)
+    offsetFromBC='BCWall',  
+    check=False)
 
-pyTree = extractPyTree(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, meshIDTarget=0) # extract background mesh
-blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, pyTree=pyTree) # MeshBlankingMap?
+dictOfBlanking = {
+    0:[1]
+}
+blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, dictOfBlanking=dictOfBlanking)
 
 # This could be a time step loop...
 for i in range(0, 1):
 
     # 1-update cell nature field with 0 (blanked) and 1 (active)
-    blankingObj.computeBlanking(mask)
+    blankingObj.computeBlanking(dictOfMasks=mask)
 
     # 2-remove blanked cells
     extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)

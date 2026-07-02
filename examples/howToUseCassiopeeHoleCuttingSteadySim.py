@@ -10,10 +10,6 @@ from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 
 import math
 
-# overset settings
-offsets = [0.3]
-offsetFromBC = 'BCWall'
-
 # mesh settings
 localDirIn = 'INPUT/'
 localDirOut = 'OUTPUT/TEST_RANS/'
@@ -127,18 +123,22 @@ if meshID != 0:
 ## ====================================
 ## Set up blanking & overset
 ## ====================================
+dictOfOffsets = {}
+dictOfOffsets[1] = 0.3
+
 mask = generateBlankingMask(
     clac=localClac, fsmesh=fsmeshOriginal,
-    offsets=offsets,
+    dictOfOffsets=dictOfOffsets,
     meshID=meshID,
     localDir=localDirOut,
-    offsetFromBC=offsetFromBC,
-    check=True
-)
+    offsetFromBC='BCWall',
+    check=False)
+dictOfBlanking = {
+    0:[1]
+}
 
-pyTree = extractPyTree(clac=localClac, fsmesh=fsmeshOriginal, meshID=meshID, meshIDTarget=0) # extract background mesh
-blankingObj = FSOverset(clac=localClac, fsmesh=fsmeshOriginal, pyTree=pyTree)
-blankingObj.computeBlanking(mask)
+blankingObj = FSOverset(clac=localClac, fsmesh=fsmeshOriginal, meshID=meshID, dictOfBlanking=dictOfBlanking)
+blankingObj.computeBlanking(dictOfMasks=mask)
 
 extractActiveSubMesh(dm, meshKeyOriginal, meshKeyActive)
 
