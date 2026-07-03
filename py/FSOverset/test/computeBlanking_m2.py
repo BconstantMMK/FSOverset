@@ -65,8 +65,6 @@ blankedObj.computeBlanking(dictOfMasks)
 testDir = Ktest.getDataFolderName()
 from FSPlugins.test import testH5
 testFile = testDir+'/computeBlanking_m2_%d_%d.h5'%(meshID, Cmpi.rank)
-checkFile = "computeBlanking_m2_%d_%d.h5"%(meshID, Cmpi.rank)
-blankedObj.fsmesh.ExportMeshHDF5(Filename=checkFile)
 if not testFile: blankedObj.fsmesh.ExportMeshHDF5(Filename=testFile) or FSError.PrintAndExit()
 testH5(clac, blankedObj.fsmesh, number=1,
     checkCoordinates=True, coordsName="Coordinates",

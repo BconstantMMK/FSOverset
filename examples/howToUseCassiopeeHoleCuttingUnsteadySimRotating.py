@@ -116,7 +116,16 @@ outerTimeIntegrationParaDict = {
         "size": time_step,
     },
 }
+## ====================================
+## Set up blanking data - user defined
+## ====================================
+dictOfOffsets={}
+dictOfOffsets[1]=0.3
 
+dictOfBlanking = {}
+dictOfBlanking[0]=[1]
+
+#===============================================
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 globalProcID = globalClac.GetProcID()
 nGlobalProcs = globalClac.GetNProcs()
@@ -155,14 +164,7 @@ else:
     meshKeyOriginal = 'naca_orig'
     meshKeyActive = 'naca_active'
 
-## ====================================
-## Set up blanking data - user defined
-## ====================================
-dictOfOffsets={}
-dictOfOffsets[1]=0.3
 
-dictOfBlanking = {}
-dictOfBlanking[0]=[1]
 # MANDATORY to set to 'none' for non-blanked meshes for extractActiveSubMesh to work properly
 if meshID not in dictOfBlanking:
    meshKeyOriginal = 'none'

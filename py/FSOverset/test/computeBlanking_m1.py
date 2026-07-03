@@ -59,10 +59,11 @@ blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, dictOfBlanki
 # 1-update cell nature field with 0 (blanked) and 1 (active)
 blankedObj.computeBlanking(dictOfMasks)
 
+# test
 testDir = Ktest.getDataFolderName()
-testFile = testDir+'/computeBlanking_m1_%d.h5'%(meshID)
-if not testFile: blankedObj.fsmesh.ExportMeshHDF5(Filename=testFile) or FSError.PrintAndExit()
 from FSPlugins.test import testH5
+testFile = testDir+'/computeBlanking_m1_%d_%d.h5'%(meshID, Cmpi.rank)
+if not testFile: blankedObj.fsmesh.ExportMeshHDF5(Filename=testFile) or FSError.PrintAndExit()
 testH5(clac, blankedObj.fsmesh, number=1,
     checkCoordinates=True, coordsName="Coordinates",
     checkConnectivity=True, checkDatasets=True,

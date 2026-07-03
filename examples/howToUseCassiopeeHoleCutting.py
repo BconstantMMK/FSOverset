@@ -7,6 +7,15 @@ from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractActiveSu
 localDirIn = './INPUT/'
 localDirOut = './OUTPUT/TEST1/'
 
+#===============================
+#blanking data - user defined
+#===============================
+dictOfOffsets={}
+dictOfOffsets[1] = 0.3
+dictOfBlanking = {
+    0:[1]
+}
+#===============================
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
 
@@ -37,9 +46,8 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 # Get active mesh - useful for CODA computations where the active part is extracted
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
-dictOfOffsets={}
-dictOfOffsets[1] = 0.3
-mask = generateBlankingMask(
+#FSOverset 
+dictOfMasks = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
     dictOfOffsets=dictOfOffsets,
     meshID=meshID,
@@ -47,28 +55,22 @@ mask = generateBlankingMask(
     offsetFromBC='BCWall',  
     check=False)
 
-dictOfBlanking = {
-    0:[1]
-}
 blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, dictOfBlanking=dictOfBlanking)
 
-# This could be a time step loop...
-for i in range(0, 1):
+# 1-update cell nature field with 0 (blanked) and 1 (active)
+blankingObj.computeBlanking(dictOfMasks=dictOfMasks)
 
-    # 1-update cell nature field with 0 (blanked) and 1 (active)
-    blankingObj.computeBlanking(dictOfMasks=mask)
+# 2-remove blanked cells
+extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
 
-    # 2-remove blanked cells
-    extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
+fsmeshOrig.ExportMeshTECPLOT(
+    Filename=localDirOut+'blanking_mesh_%d.plt'%meshID,
+    FileFormat='binary',
+    PrefixDatasetName=True
+) or FSError.PrintAndExit()
 
-    fsmeshOrig.ExportMeshTECPLOT(
-        Filename=localDirOut+'blanking_mesh_%d.plt'%meshID,
-        FileFormat='binary',
-        PrefixDatasetName=True
-    ) or FSError.PrintAndExit()
-
-    fsmeshActive.ExportMeshTECPLOT(
-        Filename=localDirOut+'blanked_mesh_%d.plt'%meshID,
-        FileFormat='binary',
-        PrefixDatasetName=True
-    ) or FSError.PrintAndExit()
+fsmeshActive.ExportMeshTECPLOT(
+    Filename=localDirOut+'blanked_mesh_%d.plt'%meshID,
+    FileFormat='binary',
+    PrefixDatasetName=True
+) or FSError.PrintAndExit()

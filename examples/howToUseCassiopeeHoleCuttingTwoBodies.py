@@ -13,6 +13,17 @@ refer to example howToUseCassiopeeHoleCuttingTwoBodiesDoubleBlanking.py.
 localDirIn = './INPUT/'
 localDirOut = './OUTPUT/TEST2/'
 
+#===================
+# blanking data - user defined
+dictOfOffsets={}
+dictOfOffsets[1]=0.3
+dictOfOffsets[2]=0.1
+
+dictOfBlanking = {}
+dictOfBlanking[0]= [1,2]
+dictOfBlanking[2]= [1]
+
+#=============================================================================================
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
 
@@ -31,22 +42,12 @@ if meshID == 0:
     meshKeyActive = 'back_active'  # the active part of the background mesh
 elif meshID == 1:
     meshFilename = localDirIn+'naca.h5'
-    meshKeyOriginal = 'naca'
-    meshKeyActive = 'naca'
+    meshKeyOriginal = 'naca_orig'
+    meshKeyActive = 'naca_active'
 else:
     meshFilename = localDirIn+'cylinder_small.h5'
     meshKeyOriginal = 'cyl_orig'
     meshKeyActive = 'cyl_active'
-
-#===================
-# blanking data - user defined
-dictOfOffsets={}
-dictOfOffsets[1]=0.3
-dictOfOffsets[2]=0.1
-
-dictOfBlanking = {}
-dictOfBlanking[0]= [1,2]
-dictOfBlanking[2]= [1]
 
 # MANDATORY to set to 'none' for non-blanked meshes for extractActiveSubMesh to work properly
 # need to be before the initialization of the fsMeshActive !!!

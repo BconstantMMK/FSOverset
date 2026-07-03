@@ -4,10 +4,13 @@ from FSDataManager import FSClac, FSError, FSDataManager
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 from FSOverset.FSOverset import FSOverset
 import Converter.PyTree as C
+import Converter.Mpi as Cmpi
 import KCore.test as Ktest
 
-offsets = [0.3]
 localDirIn = './INPUT/'
+dictOfBlanking={}
+dictOfBlanking[0] = [1]
+
 
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
@@ -27,8 +30,8 @@ if meshID == 0:
     meshKeyActive = 'back_active'  # the active part of the background mesh
 else:
     meshFilename = localDirIn+'naca.h5'
-    meshKeyOrig = 'naca'
-    meshKeyActive = 'naca'
+    meshKeyOrig = 'naca_orig'
+    meshKeyActive = 'naca_active'
 
 dm = FSDataManager(globalClac)
 fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
@@ -38,9 +41,8 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 # Get active mesh - useful for CODA computations where the active part is extracted
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
-dictOfBlanking={}
-dictOfBlanking[0] = [1]
 blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, dictOfBlanking=dictOfBlanking)
 t = blankedObj.pyTree
 if t is None: t = C.newPyTree(["DUMMY_%d"%meshID])
-Ktest.testT(t, meshID)
+notest = Cmpi.rank+meshID*Cmpi.size
+Ktest.testT(t,notest)

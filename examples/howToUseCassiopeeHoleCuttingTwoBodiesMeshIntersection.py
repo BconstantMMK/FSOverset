@@ -16,6 +16,18 @@ procedure that we usually (in the single body case) apply to the background mesh
 localDirIn = './INPUT/'
 localDirOut = './OUTPUT/TEST3/'
 
+#===================
+# blanking data - user defined
+dictOfOffsets={}
+dictOfOffsets[1]=0.3
+dictOfOffsets[2]=0.5
+
+dictOfBlanking={}
+dictOfBlanking[0]=[1,2]
+dictOfBlanking[1]=[2]
+dictOfBlanking[2]= [1]
+
+#=============================================================================================
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
 
@@ -43,17 +55,6 @@ elif meshID == 2:
     meshFilename = localDirIn+'cylinder_large.h5'
     meshKeyOriginal = 'cyl_orig' # now the cylinder is also blanked
     meshKeyActive = 'cyl_active'
-
-#===================
-# blanking data - user defined
-dictOfOffsets={}
-dictOfOffsets[1]=0.3
-dictOfOffsets[2]=0.5
-
-dictOfBlanking={}
-dictOfBlanking[0]=[1,2]
-dictOfBlanking[1]=[2]
-dictOfBlanking[2]= [1]
 
 # MANDATORY to set to 'none' for non-blanked meshes for extractActiveSubMesh to work properly
 # need to be before the initialization of the fsMeshActive !!!
