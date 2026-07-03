@@ -8,14 +8,13 @@ import Converter.Mpi as Cmpi
 import Converter.PyTree as C
 import KCore.test as Ktest
 
-
 localDirIn = './INPUT/'
 
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
 
 if nGlobalProcs < 3:
-    raise ValueError('howToUseCassiopeeHoleCuttingTwoBodiesMeshIntersection must be run with at least 3 MPI processes.')
+    raise ValueError('computeBlanking_m2.py must be run with at least 3 MPI processes.')
 
 globalProcID = globalClac.GetProcID()
 meshID = int(globalProcID // (nGlobalProcs / 3))
@@ -46,34 +45,29 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 # Get active mesh - useful for CODA computations where the active part is extracted
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
+# blanking bodies
+dictOfMasks={}
+dictOfMasks[1] = P.exteriorFaces(G.cart((-0.3,0,-0.2), (1.6,0.02,0.4), (2,2,2)))
+dictOfMasks[2] = P.exteriorFaces(G.cart((1.25,0,-0.2), (1.25,0.02,0.4), (2,2,2)))
 
-dm = FSDataManager(globalClac)
-fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
-meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
-fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
+# dictOfBlanking: which meshID is blanked by which masks
+dictOfBlanking={}
+dictOfBlanking[0]=[1,2] # meshID=0 is blanked by mask 1 & 2 of dictOfMasks
+dictOfBlanking[1]=[2]
+dictOfBlanking[2]=[1]
+#
+# blanking obj for everybody 
+blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, dictOfBlanking=dictOfBlanking)
+# 1-update cell nature field with 0 (blanked) and 1 (active)
+blankedObj.computeBlanking(dictOfMasks)
 
-# Get active mesh - useful for CODA computations where the active part is extracted
-fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
-
-mask={}
-
-mask[1] = P.exteriorFaces(G.cart((-0.3,0,-0.2), (1.6,0.02,0.4), (2,2,2)))
-mask[2] = P.exteriorFaces(G.cart((1.25,0,-0.2), (1.25,0.02,0.4), (2,2,2)))
-
-# blanking obj for everybody ! 
+# test
 testDir = Ktest.getDataFolderName()
 from FSPlugins.test import testH5
-
-for meshIDTarget in [0,1,2]:
-    blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, meshIDTarget=meshIDTarget)
-    # 1-update cell nature field with 0 (blanked) and 1 (active)
-    localmask = mask.copy()
-    if meshIDTarget > 0: localmask.pop(meshIDTarget)
-    blankedObj.computeBlanking(localmask)
-    testFile = testDir+'/computeBlanking_t2_%d_%d_%d.h5'%(meshID, meshIDTarget, Cmpi.rank)
-    if not testFile: blankedObj.fsmesh.ExportMeshHDF5(Filename=testFile) or FSError.PrintAndExit()
-    testH5(clac, blankedObj.fsmesh, number=1,
-        checkCoordinates=True, coordsName="Coordinates",
-        checkConnectivity=True, checkDatasets=True,
-        rtol=0., atol=1.e-10,
-        reference=testFile)
+testFile = testDir+'/computeBlanking_m2_%d_%d.h5'%(meshID, Cmpi.rank)
+if not testFile: blankedObj.fsmesh.ExportMeshHDF5(Filename=testFile) or FSError.PrintAndExit()
+testH5(clac, blankedObj.fsmesh, number=1,
+    checkCoordinates=True, coordsName="Coordinates",
+    checkConnectivity=True, checkDatasets=True,
+    rtol=0., atol=1.e-10,
+    reference=testFile)

@@ -2,12 +2,20 @@
 from FSDataManager import FSClac, FSError, FSDataManager
 
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
-from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractPyTree, extractActiveSubMesh
+from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractActiveSubMesh
 
-offsets = [0.3]
 localDirIn = './INPUT/'
 localDirOut = './OUTPUT/TEST1/'
 
+#===============================
+#blanking data - user defined
+#===============================
+dictOfOffsets={}
+dictOfOffsets[1] = 0.3
+dictOfBlanking = {
+    0:[1]
+}
+#===============================
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
 
@@ -29,6 +37,7 @@ else:
     meshKeyOrig = 'naca'
     meshKeyActive = 'naca'
 
+
 dm = FSDataManager(globalClac)
 fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
 meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
@@ -37,35 +46,31 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 # Get active mesh - useful for CODA computations where the active part is extracted
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
-mask = generateBlankingMask(
+#FSOverset 
+dictOfMasks = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
-    offsets=offsets,
+    dictOfOffsets=dictOfOffsets,
     meshID=meshID,
     localDir=localDirOut,
-    offsetFromBC='BCWall',  # offsetFromBC='BCWall' or 'BCOverset' (by default)
-    check=True
-)
+    offsetFromBC='BCWall',  
+    check=False)
 
-pyTree = extractPyTree(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, meshIDTarget=0) # extract background mesh
-blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, pyTree=pyTree) # MeshBlankingMap?
+blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, dictOfBlanking=dictOfBlanking)
 
-# This could be a time step loop...
-for i in range(0, 1):
+# 1-update cell nature field with 0 (blanked) and 1 (active)
+blankingObj.computeBlanking(dictOfMasks=dictOfMasks)
 
-    # 1-update cell nature field with 0 (blanked) and 1 (active)
-    blankingObj.computeBlanking(mask)
+# 2-remove blanked cells
+extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
 
-    # 2-remove blanked cells
-    extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
+fsmeshOrig.ExportMeshTECPLOT(
+    Filename=localDirOut+'blanking_mesh_%d.plt'%meshID,
+    FileFormat='binary',
+    PrefixDatasetName=True
+) or FSError.PrintAndExit()
 
-    fsmeshOrig.ExportMeshTECPLOT(
-        Filename=localDirOut+'blanking_mesh_%d.plt'%meshID,
-        FileFormat='binary',
-        PrefixDatasetName=True
-    ) or FSError.PrintAndExit()
-
-    fsmeshActive.ExportMeshTECPLOT(
-        Filename=localDirOut+'blanked_mesh_%d.plt'%meshID,
-        FileFormat='binary',
-        PrefixDatasetName=True
-    ) or FSError.PrintAndExit()
+fsmeshActive.ExportMeshTECPLOT(
+    Filename=localDirOut+'blanked_mesh_%d.plt'%meshID,
+    FileFormat='binary',
+    PrefixDatasetName=True
+) or FSError.PrintAndExit()

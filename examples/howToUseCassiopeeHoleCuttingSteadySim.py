@@ -10,10 +10,6 @@ from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 
 import math
 
-# overset settings
-offsets = [0.3]
-offsetFromBC = 'BCWall'
-
 # mesh settings
 localDirIn = 'INPUT/'
 localDirOut = 'OUTPUT/TEST_RANS/'
@@ -74,7 +70,13 @@ timeIntegrationParaDict = {
         },
     }
 }
+## ====================================
+## blanking data
+## ====================================
+dictOfOffsets = {}; dictOfOffsets[1] = 0.3
+dictOfBlanking = {0:[1]}
 
+## ====================================
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 globalProcID = globalClac.GetProcID()
 nGlobalProcs = globalClac.GetNProcs()
@@ -106,8 +108,13 @@ if meshID == 0:
     meshKeyActive = 'back_active'  # the active part of the background mesh
 else:
     meshFilename = localDirIn+'naca.h5'
-    meshKeyOriginal = 'naca'
-    meshKeyActive = 'naca'
+    meshKeyOriginal = 'naca_orig'
+    meshKeyActive = 'naca_active'
+
+# MANDATORY to set to 'none' for non-blanked meshes for extractActiveSubMesh to work properly
+if meshID not in dictOfBlanking:
+   meshKeyOriginal = 'none'
+   meshKeyActive = 'none'
 
 ## ====================================
 ## Create Data Manager & set Original/Active
@@ -120,26 +127,19 @@ fsmeshActive = dm.GetMesh(meshKeyActive, localClac, True)
 meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=True)
 fsmeshOriginal.DoOps(meshOps) or FSError.PrintAndExit()
 
-if meshID != 0: 
-    meshKeyOriginal = 'none'
-    meshKeyActive = 'none'
 
-## ====================================
-## Set up blanking & overset
-## ====================================
 mask = generateBlankingMask(
     clac=localClac, fsmesh=fsmeshOriginal,
-    offsets=offsets,
+    dictOfOffsets=dictOfOffsets,
     meshID=meshID,
     localDir=localDirOut,
-    offsetFromBC=offsetFromBC,
-    check=True
-)
+    offsetFromBC='BCWall',
+    check=False)
 
-pyTree = extractPyTree(clac=localClac, fsmesh=fsmeshOriginal, meshID=meshID, meshIDTarget=0) # extract background mesh
-blankingObj = FSOverset(clac=localClac, fsmesh=fsmeshOriginal, pyTree=pyTree)
-blankingObj.computeBlanking(mask)
 
+blankingObj = FSOverset(clac=localClac, fsmesh=fsmeshOriginal, meshID=meshID, dictOfBlanking=dictOfBlanking)
+# il faut le mettre 1 fois pour initialiser le fsmeshactive pour creer le local numbering
+blankingObj.computeBlanking(dictOfMasks=mask)
 extractActiveSubMesh(dm, meshKeyOriginal, meshKeyActive)
 
 ## ====================================

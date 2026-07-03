@@ -3,9 +3,9 @@ from FSDataManager import FSClac, FSError, FSDataManager
 
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 from FSOverset.FSOverset import generateBlankingMask
+import Converter.Mpi as Cmpi
 import KCore.test as Ktest
 
-offsets = [0.3]
 localDirIn = './INPUT/'
 
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
@@ -30,7 +30,7 @@ else:
     meshKeyActive = 'naca'
 
 dictOfOffsets = {}
-dictOfOffsets[1] = offsets[0]
+dictOfOffsets[1] = 0.3
 dictOfOffsets[0] = 0.01 # there is no BCWall so it won t be taken into account
 
 dm = FSDataManager(globalClac)
@@ -41,15 +41,13 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 # Get active mesh - useful for CODA computations where the active part is extracted
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
-mask = generateBlankingMask(
+dictOfMasks = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
     dictOfOffsets=dictOfOffsets,
     meshID=meshID,
-    localDir=localDirOut,
     offsetFromBC='BCWall', 
-    check=True
-)
+    check=False)
 
-for item in mask:
-    Ktest.testT(mask[item],item+ globalProcID*len(mask))
+if Cmpi.rank==0:
+    for item in dictOfMasks: Ktest.testT(dictOfMasks[item],item)
 
