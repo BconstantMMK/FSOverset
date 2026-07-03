@@ -1,18 +1,20 @@
 # Usage: kpython -n2 -t4 generateBlankingMask_m1.py
 from FSDataManager import FSClac, FSError, FSDataManager
-
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 from FSOverset.FSOverset import generateBlankingMask
-import Converter.Mpi as Cmpi
 import KCore.test as Ktest
 
 localDirIn = './INPUT/'
+
+dictOfOffsets = {}
+dictOfOffsets[1] = 0.3
+dictOfOffsets[0] = 0.01 # there is no BCWall in meshID==0 so it will not be taken into account
 
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
 
 if nGlobalProcs < 2:
-    raise ValueError("howToUseCassiopeeHoleCutting must be run with at least 2 MPI processes.")
+    raise ValueError('generateBlankingMask_m1.py requires 2 processes at least.')
 
 globalProcID = globalClac.GetProcID()
 meshID = int(globalProcID // (nGlobalProcs / 2))
@@ -22,25 +24,19 @@ globalClac.DivideIntoGroups(meshID, clac)
 
 if meshID == 0:
     meshFilename = localDirIn+'background.h5'
-    meshKeyOrig = 'back_orig'  # the original background mesh
-    meshKeyActive = 'back_active'  # the active part of the background mesh
+    meshKeyOrig = 'back_orig'
+    meshKeyActive = 'back_active'
 else:
     meshFilename = localDirIn+'naca.h5'
     meshKeyOrig = 'naca'
     meshKeyActive = 'naca'
-
-dictOfOffsets = {}
-dictOfOffsets[1] = 0.3
-dictOfOffsets[0] = 0.01 # there is no BCWall so it won t be taken into account
 
 dm = FSDataManager(globalClac)
 fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
 meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
-# Get active mesh - useful for CODA computations where the active part is extracted
-fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
-
+# Automatically generate dictOfMasks from dictOfOffsets
 dictOfMasks = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
     dictOfOffsets=dictOfOffsets,
@@ -48,6 +44,7 @@ dictOfMasks = generateBlankingMask(
     offsetFromBC='BCWall', 
     check=False)
 
-if Cmpi.rank==0:
+# test
+if globalProcID == 0:
     for item in dictOfMasks: Ktest.testT(dictOfMasks[item],item)
 
