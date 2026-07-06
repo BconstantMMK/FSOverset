@@ -9,16 +9,16 @@ import KCore.test as Ktest
 
 localDirIn = './INPUT/'
 
-# dictOfMasks: blanking bodies
-dictOfMasks = {}
-dictOfMasks[1] = P.exteriorFaces(G.cart((-0.3,0,-0.2), (1.6,0.02,0.4), (2,2,2)))
-dictOfMasks[2] = P.exteriorFaces(G.cart((1.25,0,-0.2), (1.25,0.02,0.4), (2,2,2)))
+# blankingMaskDict: blanking bodies
+blankingMaskDict = {}
+blankingMaskDict[1] = P.exteriorFaces(G.cart((-0.3,0,-0.2), (1.6,0.02,0.4), (2,2,2)))
+blankingMaskDict[2] = P.exteriorFaces(G.cart((1.25,0,-0.2), (1.25,0.02,0.4), (2,2,2)))
 
-# dictOfBlanking: which meshID is blanked by which masks
-dictOfBlanking = {}
-dictOfBlanking[0] = [1,2] # meshID=0 is blanked by mask 1 & 2 of dictOfMasks
-dictOfBlanking[1] = [2]
-dictOfBlanking[2] = [1]
+# blankingDict: which meshID is blanked by which masks
+blankingDict = {}
+blankingDict[0] = [1,2] # meshID=0 is blanked by mask 1 & 2 of blankingMaskDict
+blankingDict[1] = [2]
+blankingDict[2] = [1]
 
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
@@ -51,10 +51,10 @@ meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
 # Initialize FSOverset class for every meshID
-blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, dictOfBlanking=dictOfBlanking)
+blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, blankingDict=blankingDict)
 
 # Update cell nature field with 0 (blanked) and 1 (active)
-blankedObj.computeBlanking(dictOfMasks)
+blankedObj.computeBlanking(blankingMaskDict)
 
 # test
 testDir = Ktest.getDataFolderName()

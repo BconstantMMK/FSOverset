@@ -41,15 +41,15 @@ __RAD2DEG__ = 180./math.pi
 
 class FSOverset:
 
-    def __init__(self, clac, fsmesh, meshID, dictOfBlanking={}):
+    def __init__(self, clac, fsmesh, meshID, blankingDict={}):
         self.clac = clac
         self.fsmesh = fsmesh
         self.meshID = meshID
-        self.dictOfBlanking = dictOfBlanking
+        self.blankingDict = blankingDict
         self.pyTree = None
 
-        if meshID in dictOfBlanking:
-            if len(dictOfBlanking[meshID])>0:
+        if meshID in blankingDict:
+            if len(blankingDict[meshID])>0:
                 self.pyTree = extractPyTree(clac=clac, fsmesh=fsmesh)
         self.cellNName = 'cellN' # cellN located at the nodes 
 
@@ -58,18 +58,18 @@ class FSOverset:
             if self.fsmesh.HasCellType(cellType):
                 self.fsVolumeCellTypes.Append(cellType)
 
-    def computeBlanking(self, dictOfMasks, blankingType='center_in', dim=3):
+    def computeBlanking(self, blankingMaskDict, blankingType='center_in', dim=3):
         validBlankingTypes = ['center_in', 'node_in', 'cell_intersect']
         if blankingType not in validBlankingTypes:
             raise ValueError("computeBlanking: invalid blankingType (%s). Possible values are %s"%(blankingType, validBlankingTypes))
         
         meshIDTarget = self.meshID
-        dictOfBlanking = self.dictOfBlanking
+        blankingDict = self.blankingDict
         if self.pyTree is not None:
             C._deleteEmptyZones(self.pyTree)
 
-            for maskID in dictOfBlanking[meshIDTarget]:
-                bodiesL = Internal.getZones(dictOfMasks[maskID])
+            for maskID in blankingDict[meshIDTarget]:
+                bodiesL = Internal.getZones(blankingMaskDict[maskID])
                 self.pyTree = X.blankCellsTri(self.pyTree, [bodiesL], [], blankingType=blankingType, cellNName=self.cellNName) 
 
             # Create an FSDM dataset for cellN obtained in Cassiopee
@@ -99,8 +99,9 @@ class FSOverset:
 # ---------------------------------------------------------------------------- #
 # FSOverset Functions
 # ---------------------------------------------------------------------------- #
-#dictOfOffsets : mandatory (can be zero) to specify if a BC defines a blanking mask or not.
-def generateBlankingMask(clac, fsmesh, meshID, dictOfOffsets, offsetFromBC='BCOverset', dim=3, localDir='./', check=False):
+
+#offsetDict : mandatory (can be zero) to specify if a BC defines a blanking mask or not.
+def generateBlankingMask(clac, fsmesh, meshID, offsetDict, offsetFromBC='BCOverset', dim=3, localDir='./', check=False):
     """Generate a blanking mask from a specified BC"""
     validBCNames = ['BCOverset', 'BCWall']
     if offsetFromBC not in validBCNames:
@@ -109,7 +110,7 @@ def generateBlankingMask(clac, fsmesh, meshID, dictOfOffsets, offsetFromBC='BCOv
     tb = None
 
     # Conversion of the curvilinear mesh of the body ('standard' conversion)
-    if meshID in dictOfOffsets:
+    if meshID in offsetDict:
         bcDict = generateBCDictFromMesh(fsmesh)
         if any(bcDict[bc].startswith(offsetFromBC) for bc in bcDict):
             if fsmesh.HasUnstructDataset('UndeformedCoordinates'): coordsName = 'UndeformedCoordinates'
@@ -150,27 +151,27 @@ def generateBlankingMask(clac, fsmesh, meshID, dictOfOffsets, offsetFromBC='BCOv
            bodies[meshID_l] = G.close(bodies[meshID_l])
 
     # Create offset bodies per meshID
-    bodies_offset = bodies.copy()
+    blankingMaskDict = bodies.copy()
 
     sign_offset = 1. if offsetFromBC == 'BCWall' else -1.
-    for meshID_l in bodies_offset:
-        offsetdist = dictOfOffsets[meshID_l]
+    for meshID_l in blankingMaskDict:
+        offsetdist = offsetDict[meshID_l]
         if offsetdist > 0.:
-            BB = G.bbox(bodies_offset[meshID_l])
+            BB = G.bbox(blankingMaskDict[meshID_l])
             xmin = BB[0]; ymin = BB[1]; zmin = BB[2]
             xmax = BB[3]; ymax = BB[4]; zmax = BB[5]
             dmax = max((xmax-xmin), (ymax-ymin), (zmax-zmin))
             ppul = 50./dmax
             if Cmpi.master: print('generateBlankingMask: generating offset (meshID=%d) with ppul=%f and dmax=%f'%(meshID_l, ppul, dmax))
-            bodies_offset[meshID_l] = D.offsetSurface(bodies_offset[meshID_l], offset=sign_offset*dictOfOffsets[meshID_l], pointsPerUnitLength=ppul, algo=0, dim=dim)[0]
-            if Cmpi.master and check: C.convertPyTree2File(bodies_offset[meshID_l], localDir+'wall_offset_%s.plt' %meshID_l)
-            bodies_offset[meshID_l] = C.convertArray2Tetra(bodies_offset[meshID_l])
+            blankingMaskDict[meshID_l] = D.offsetSurface(blankingMaskDict[meshID_l], offset=sign_offset*offsetDict[meshID_l], pointsPerUnitLength=ppul, algo=0, dim=dim)[0]
+            if Cmpi.master and check: C.convertPyTree2File(blankingMaskDict[meshID_l], localDir+'wall_offset_%s.plt' %meshID_l)
+            blankingMaskDict[meshID_l] = C.convertArray2Tetra(blankingMaskDict[meshID_l])
         else: 
-            bodies_offset[meshID_l] = C.convertArray2Tetra(bodies[meshID_l])
+            blankingMaskDict[meshID_l] = C.convertArray2Tetra(bodies[meshID_l])
 
-        bodies_offset[meshID_l] = G.close(bodies_offset[meshID_l])
+        blankingMaskDict[meshID_l] = G.close(blankingMaskDict[meshID_l])
 
-    return bodies_offset
+    return blankingMaskDict
 
 def extractPyTree(clac, fsmesh):
     """Extract a pyTree mesh from a fsmesh"""

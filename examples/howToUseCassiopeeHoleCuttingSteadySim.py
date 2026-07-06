@@ -73,8 +73,8 @@ timeIntegrationParaDict = {
 ## ====================================
 ## blanking data
 ## ====================================
-dictOfOffsets = {}; dictOfOffsets[1] = 0.3
-dictOfBlanking = {0:[1]}
+offsetDict = {}; offsetDict[1] = 0.3
+blankingDict = {0:[1]}
 
 ## ====================================
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
@@ -112,7 +112,7 @@ else:
     meshKeyActive = 'naca_active'
 
 # MANDATORY to set to 'none' for non-blanked meshes for extractActiveSubMesh to work properly
-if meshID not in dictOfBlanking:
+if meshID not in blankingDict:
    meshKeyOriginal = 'none'
    meshKeyActive = 'none'
 
@@ -130,16 +130,16 @@ fsmeshOriginal.DoOps(meshOps) or FSError.PrintAndExit()
 
 mask = generateBlankingMask(
     clac=localClac, fsmesh=fsmeshOriginal,
-    dictOfOffsets=dictOfOffsets,
+    offsetDict=offsetDict,
     meshID=meshID,
     localDir=localDirOut,
     offsetFromBC='BCWall',
     check=False)
 
 
-blankingObj = FSOverset(clac=localClac, fsmesh=fsmeshOriginal, meshID=meshID, dictOfBlanking=dictOfBlanking)
+blankingObj = FSOverset(clac=localClac, fsmesh=fsmeshOriginal, meshID=meshID, blankingDict=blankingDict)
 # il faut le mettre 1 fois pour initialiser le fsmeshactive pour creer le local numbering
-blankingObj.computeBlanking(dictOfMasks=mask)
+blankingObj.computeBlanking(blankingMaskDict=mask)
 extractActiveSubMesh(dm, meshKeyOriginal, meshKeyActive)
 
 ## ====================================

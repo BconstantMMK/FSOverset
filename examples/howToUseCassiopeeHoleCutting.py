@@ -10,9 +10,9 @@ localDirOut = './OUTPUT/TEST1/'
 #===============================
 #blanking data - user defined
 #===============================
-dictOfOffsets={}
-dictOfOffsets[1] = 0.3
-dictOfBlanking = {
+offsetDict={}
+offsetDict[1] = 0.3
+blankingDict = {
     0:[1]
 }
 #===============================
@@ -47,18 +47,18 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
 #FSOverset 
-dictOfMasks = generateBlankingMask(
+blankingMaskDict = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
-    dictOfOffsets=dictOfOffsets,
+    offsetDict=offsetDict,
     meshID=meshID,
     localDir=localDirOut,
     offsetFromBC='BCWall',  
     check=False)
 
-blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, dictOfBlanking=dictOfBlanking)
+blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, blankingDict=blankingDict)
 
 # 1-update cell nature field with 0 (blanked) and 1 (active)
-blankingObj.computeBlanking(dictOfMasks=dictOfMasks)
+blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
 
 # 2-remove blanked cells
 extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)

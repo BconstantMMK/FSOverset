@@ -18,14 +18,14 @@ localDirOut = './OUTPUT/TEST3/'
 
 #===================
 # blanking data - user defined
-dictOfOffsets={}
-dictOfOffsets[1]=0.3
-dictOfOffsets[2]=0.5
+offsetDict={}
+offsetDict[1]=0.3
+offsetDict[2]=0.5
 
-dictOfBlanking={}
-dictOfBlanking[0]=[1,2]
-dictOfBlanking[1]=[2]
-dictOfBlanking[2]= [1]
+blankingDict={}
+blankingDict[0]=[1,2]
+blankingDict[1]=[2]
+blankingDict[2]= [1]
 
 #=============================================================================================
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
@@ -58,7 +58,7 @@ elif meshID == 2:
 
 # MANDATORY to set to 'none' for non-blanked meshes for extractActiveSubMesh to work properly
 # need to be before the initialization of the fsMeshActive !!!
-if meshID not in dictOfBlanking:
+if meshID not in blankingDict:
     meshKeyOriginal = 'none'
     meshKeyActive = 'none'
 
@@ -72,17 +72,17 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
 #blanking objs creation
-dictOfMasks = generateBlankingMask(
+blankingMaskDict = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
-    dictOfOffsets=dictOfOffsets,
+    offsetDict=offsetDict,
     meshID=meshID,
     localDir=localDirOut,
     offsetFromBC='BCWall', 
     check=False)
-blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, dictOfBlanking=dictOfBlanking)
+blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, blankingDict=blankingDict)
 # FROM NOW ON, THIS CAN BE WITHIN A TIME STEP LOOP
 # 1-update cell nature field with 0 (blanked) and 1 (active)
-blankedObj.computeBlanking(dictOfMasks=dictOfMasks)
+blankedObj.computeBlanking(blankingMaskDict=blankingMaskDict)
 
 # 2-remove blanked cells
 extractActiveSubMesh(dm, meshKeyOriginal, meshKeyActive) 

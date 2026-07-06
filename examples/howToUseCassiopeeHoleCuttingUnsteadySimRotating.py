@@ -119,11 +119,11 @@ outerTimeIntegrationParaDict = {
 ## ====================================
 ## Set up blanking data - user defined
 ## ====================================
-dictOfOffsets={}
-dictOfOffsets[1]=0.3
+offsetDict={}
+offsetDict[1]=0.3
 
-dictOfBlanking = {}
-dictOfBlanking[0]=[1]
+blankingDict = {}
+blankingDict[0]=[1]
 
 #===============================================
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
@@ -166,7 +166,7 @@ else:
 
 
 # MANDATORY to set to 'none' for non-blanked meshes for extractActiveSubMesh to work properly
-if meshID not in dictOfBlanking:
+if meshID not in blankingDict:
    meshKeyOriginal = 'none'
    meshKeyActive = 'none'
 
@@ -183,17 +183,17 @@ fsmeshOriginal.DoOps(meshOps) or FSError.PrintAndExit()
 fsmeshActive = dm.GetMesh(meshKeyActive, localClac, True)
 
 #blanking objs creation
-dictOfMasks = generateBlankingMask(
+blankingMaskDict = generateBlankingMask(
     clac=localClac, fsmesh=fsmeshOriginal,
-    dictOfOffsets=dictOfOffsets,
+    offsetDict=offsetDict,
     meshID=meshID,
     localDir=localDirOut,
     offsetFromBC=offsetFromBC,
     check=False)
-blankingObj = FSOverset(clac=localClac, fsmesh=fsmeshOriginal, meshID=meshID, dictOfBlanking=dictOfBlanking)
+blankingObj = FSOverset(clac=localClac, fsmesh=fsmeshOriginal, meshID=meshID, blankingDict=blankingDict)
 
 # il faut le mettre 1 fois pour initialiser le fsmeshactive pour creer le local numbering
-blankingObj.computeBlanking(dictOfMasks=dictOfMasks)
+blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
 extractActiveSubMesh(dm, meshKeyOriginal, meshKeyActive) 
 
 ## ====================================
@@ -254,9 +254,9 @@ dataLog = FSDataLog(globalClac)
 # fsmesh in relative motion
 if meshID != 0:
     initGridVelocity(fsmeshOriginal)
-    copyGrid2GridInit(fsmeshOriginal, dictOfMasks)
+    copyGrid2GridInit(fsmeshOriginal, blankingMaskDict)
 else:
-    copyGrid2GridInit(None, dictOfMasks)
+    copyGrid2GridInit(None, blankingMaskDict)
 
 ## ====================================
 ## Compute loop
@@ -267,13 +267,13 @@ for i in range(niter):
 
     # update grid coordinates and grid velocities
     if meshID != 0:
-        evalPosition(fsmeshOriginal, dictOfMasks, time, motionDict=motionDict)
+        evalPosition(fsmeshOriginal, blankingMaskDict, time, motionDict=motionDict)
         evalGridSpeed(fsmeshOriginal, time, motionDict=motionDict)
     else:
-        evalPosition(None, dictOfMasks, time, motionDict=motionDict)
+        evalPosition(None, blankingMaskDict, time, motionDict=motionDict)
 
     # update blanking    
-    blankingObj.computeBlanking(dictOfMasks=dictOfMasks)
+    blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
     extractActiveSubMesh(dm, meshKeyOriginal, meshKeyActive)
 
     # update CODA settings

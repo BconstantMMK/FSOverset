@@ -6,9 +6,9 @@ import KCore.test as Ktest
 
 localDirIn = './INPUT/'
 
-dictOfOffsets = {}
-dictOfOffsets[1] = 0.3
-dictOfOffsets[0] = 0.01 # there is no BCWall in meshID==0 so it will not be taken into account
+offsetDict = {}
+offsetDict[1] = 0.3
+offsetDict[0] = 0.01 # there is no BCWall in meshID==0 so it will not be taken into account
 
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
@@ -36,15 +36,15 @@ fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
 meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
-# Automatically generate dictOfMasks from dictOfOffsets
-dictOfMasks = generateBlankingMask(
+# Automatically generate blankingMaskDict from offsetDict
+blankingMaskDict = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
-    dictOfOffsets=dictOfOffsets,
+    offsetDict=offsetDict,
     meshID=meshID,
     offsetFromBC='BCWall', 
     check=False)
 
 # test
 if globalProcID == 0:
-    for item in dictOfMasks: Ktest.testT(dictOfMasks[item],item)
+    for item in blankingMaskDict: Ktest.testT(blankingMaskDict[item],item)
 

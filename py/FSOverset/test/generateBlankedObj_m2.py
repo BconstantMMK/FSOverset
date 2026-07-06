@@ -7,9 +7,9 @@ import KCore.test as Ktest
 
 localDirIn = './INPUT/'
 
-dictOfBlanking = {}
-dictOfBlanking[0] = [1,2]
-dictOfBlanking[2] = [1]
+blankingDict = {}
+blankingDict[0] = [1,2]
+blankingDict[2] = [1]
 
 globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
 nGlobalProcs = globalClac.GetNProcs()
@@ -42,7 +42,7 @@ meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
 # Initialize FSOverset class for every meshID
-blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, dictOfBlanking=dictOfBlanking)
+blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, blankingDict=blankingDict)
 
 # test
 t = blankedObj.pyTree        
