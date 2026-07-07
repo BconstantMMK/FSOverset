@@ -2,21 +2,18 @@ from FSDataManager import FSClac, FSError, FSDataLog, FSDataManager
 
 from CODA import DiscretizationFactory, TimeIntegrationFactory
 from CODA import StopNumIterations, StopRelativeReduction
-from CODA import MonitorTabular, MonitorSelection, MonitorIntegrals, Monitor
+from CODA import MonitorTabular, MonitorSelection, MonitorIntegrals
 from CODA.CODAHelpers import BuildDiscretizationParameterTrees, BuildTimeIntegrationParameterTrees
 
-from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractPyTree, extractActiveSubMesh, copySolution, generateDiscParasFromMesh
-from FSOverset.FSOverset import initGridVelocity, copyGrid2GridInit, evalPosition, evalGridSpeed, getWallBoundaryMarkers, display
+from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractActiveSubMesh, copySolution, generateDiscParasFromMesh
+from FSOverset.FSOverset import initGridVelocity, copyGrid2GridInit, evalPosition, evalGridSpeed, getWallBoundaryMarkers, display, getClacInfo, getMeshKeys
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 
 import math
 
-# overset settings
-offsetFromBC = 'BCWall'
-
 # mesh settings
 localDirIn = 'INPUT/'
-localDirOut = 'OUTPUT/TEST_ROTATING/'
+localDirOut = 'OUTPUT/ROTATION/'
 
 # flow settings
 Mach, gamma, chord = 0.2, 1.4, 1.0
@@ -30,14 +27,25 @@ omega = 2 * k * Uinf / chord # angular frequency
 period = 2 * math.pi / omega # oscillatory period
 
 # solver settings
-TSOP = 200 # time steps per oscillatory period
-nperiod = 1 # number of oscillatory periods
+TSOP = 200 # time steps per period (resp. revolution)
+nperiod = 1 # number of periods (resp. revolutions)
 targetResidualReduction = 1.0e-8
 maximumNumberOfIterations = 200
 
 time_step = period / TSOP
 niter = nperiod * TSOP
 time = 0
+
+meshDict = {
+    0: {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 4., 'meshKey':'background'},
+    1: {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1., 'meshKey':'naca'},
+}
+offsetDict = {
+    1: 0.3
+}
+blankingDict = {
+    0: [1]
+}
 
 motionDict = {
     'transl_speed': [tx, ty, tz],
@@ -116,90 +124,47 @@ outerTimeIntegrationParaDict = {
         "size": time_step,
     },
 }
-## ====================================
-## Set up blanking data - user defined
-## ====================================
-offsetDict={}
-offsetDict[1]=0.3
-
-blankingDict = {}
-blankingDict[0]=[1]
-
-#===============================================
-globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
-globalProcID = globalClac.GetProcID()
-nGlobalProcs = globalClac.GetNProcs()
-
-if nGlobalProcs < 2:
-    raise ValueError("howToUseCassiopeeHoleCuttingUnsteadySim must be run with at least 2 MPI processes.")
 
 ## ====================================
-## Set local clacs
+## Get clacs, fsmesh, etc.
 ## ====================================
-weightBackground = 4.0
-weightAirfoil = 1.0
-weightSum = weightBackground + weightAirfoil
 
-nProcsAirfoil = math.ceil(nGlobalProcs * weightAirfoil / weightSum)
-nProcsBackground = nGlobalProcs - nProcsAirfoil
+# Get clacs
+meshID, clac, globalClac, masterClac = getClacInfo(meshDict)
+meshFilename = meshDict[meshID]['meshFilename']
+meshKeyActive, meshKeyOrig = getMeshKeys(meshID, meshDict, blankingDict)
 
-meshID = 0 if globalProcID in range(0, nProcsBackground) else 1
-    
-localClac = FSClac()
-globalClac.DivideIntoGroups(meshID, localClac)
-
-master = localClac.GetProcID() == 0
-clacMaster  = FSClac()
-globalClac.DivideIntoGroups(master, clacMaster)
-
-## ====================================
-## Import Mesh
-## ====================================
-if meshID == 0:
-    meshFilename = localDirIn+'background.h5'
-    meshKeyOriginal = 'back_orig'  # the original background mesh
-    meshKeyActive = 'back_active'  # the active part of the background mesh
-else:
-    meshFilename = localDirIn+'naca.h5'
-    meshKeyOriginal = 'naca_orig'
-    meshKeyActive = 'naca_active'
-
-
-# MANDATORY to set to 'none' for non-blanked meshes for extractActiveSubMesh to work properly
-if meshID not in blankingDict:
-   meshKeyOriginal = 'none'
-   meshKeyActive = 'none'
-
-## ====================================
-## Create Data Manager & set Original/Active
-## ====================================    
+# Get orig mesh
 dm = FSDataManager(globalClac)
+fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
+meshOps = buildMeshOps(meshFilename, verbose=False)
+fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
-fsmeshOriginal = dm.GetMesh(meshKeyOriginal, localClac, True)
-meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=True)
-fsmeshOriginal.DoOps(meshOps) or FSError.PrintAndExit()
+# Get active mesh
+fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
-# Get active mesh - useful for CODA computations where the active part is extracted
-fsmeshActive = dm.GetMesh(meshKeyActive, localClac, True)
+## ====================================
+## initialize FSOverset
+## ====================================
 
-#blanking objs creation
 blankingMaskDict = generateBlankingMask(
-    clac=localClac, fsmesh=fsmeshOriginal,
+    clac=clac, fsmesh=fsmeshOrig,
     offsetDict=offsetDict,
     meshID=meshID,
     localDir=localDirOut,
-    offsetFromBC=offsetFromBC,
+    offsetFromBC='BCWall',
     check=False)
-blankingObj = FSOverset(clac=localClac, fsmesh=fsmeshOriginal, meshID=meshID, blankingDict=blankingDict)
 
-# il faut le mettre 1 fois pour initialiser le fsmeshactive pour creer le local numbering
+blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, blankingDict=blankingDict)
+# need to run it once to initialize fsmeshActive and create the local numbering
 blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
-extractActiveSubMesh(dm, meshKeyOriginal, meshKeyActive) 
+extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
 
 ## ====================================
 ## Set up CODA Dicts & Settings
 ## ====================================
-fsmeshActive.CreateLocalNumbering() # mandatory for Cmpi.size > 2
+
+fsmeshActive.CreateLocalNumbering()
 
 discParaDict = generateDiscParasFromMesh(fsmeshActive, discParaDict)
 
@@ -229,8 +194,8 @@ monitorIntegralsCallbacks = MonitorIntegrals(
         },
     ],
     globalClac=globalClac,
-    meshLocalClac=localClac,
-    meshClacMaster=clacMaster,
+    meshLocalClac=clac,
+    meshClacMaster=masterClac,
     monitorPeriod=1,
     timeLoggingName='PhysicalTime',
     multiMesh=True
@@ -240,7 +205,6 @@ iterationCallbacksInner = (reductionCallback | StopNumIterations(maximumNumberOf
     globalClac,
     disc.GetStateVariableNames(),
     timeIntegrationParasInner['state backup controller'],
-    # monitorIntegralsCallbacks=[monitorIntegralsCallbacks],
     monitorVariables=monitorVariables,
     monitorSelection=MonitorSelection(monitorWallClockTime=True),
     monitorPeriod=1,
@@ -253,8 +217,8 @@ dataLog = FSDataLog(globalClac)
 
 # fsmesh in relative motion
 if meshID != 0:
-    initGridVelocity(fsmeshOriginal)
-    copyGrid2GridInit(fsmeshOriginal, blankingMaskDict)
+    initGridVelocity(fsmeshOrig)
+    copyGrid2GridInit(fsmeshOrig, blankingMaskDict)
 else:
     copyGrid2GridInit(None, blankingMaskDict)
 
@@ -267,14 +231,14 @@ for i in range(niter):
 
     # update grid coordinates and grid velocities
     if meshID != 0:
-        evalPosition(fsmeshOriginal, blankingMaskDict, time, motionDict=motionDict)
-        evalGridSpeed(fsmeshOriginal, time, motionDict=motionDict)
+        evalPosition(fsmeshOrig, blankingMaskDict, time, motionDict=motionDict)
+        evalGridSpeed(fsmeshOrig, time, motionDict=motionDict)
     else:
         evalPosition(None, blankingMaskDict, time, motionDict=motionDict)
 
     # update blanking    
     blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
-    extractActiveSubMesh(dm, meshKeyOriginal, meshKeyActive)
+    extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
 
     # update CODA settings
     fsmeshActive.HasLocalNumbering() or fsmeshActive.CreateLocalNumbering()
@@ -294,14 +258,15 @@ for i in range(niter):
     state.ExportToFSMesh(disc.GetMeshInterface(), fsmeshActive, 'State') or FSError.PrintAndExit()
 
     # copy solution to original grids
-    copySolution(dm, meshKeyOriginal, meshKeyActive)
+    copySolution(dm, meshKeyOrig, meshKeyActive)
 
     # export image with Cassiopee
-    #display(globalClac, fsmeshActive, meshID, ['State.Density'], it=i+1, displayDict=displayDict, localDir=localDirOut, saveTree=True)
+    if False:
+        display(globalClac, fsmeshActive, meshID, ['State.Density'], it=i+1, displayDict=displayDict, localDir=localDirOut, saveTree=True)
 
-# export flow solution
-fsmeshActive.ExportMeshHDF5(HDF5Filename=localDirOut+'fsmeshActive_meshID%d_iter%d.h5'%(meshID, i+1), FilePerProcess=False) or FSError.PrintAndExit()
-fsmeshOriginal.ExportMeshHDF5(HDF5Filename=localDirOut+'fsmeshOriginal_meshID%d_iter%d.h5'%(meshID, i+1), FilePerProcess=False) or FSError.PrintAndExit()
+    # export flow solution
+    fsmeshActive.ExportMeshHDF5(HDF5Filename=localDirOut+'fsmeshActive_meshID%d_iter%d.h5'%(meshID, i+1), FilePerProcess=False) or FSError.PrintAndExit()
+    fsmeshOrig.ExportMeshHDF5(HDF5Filename=localDirOut+'fsmeshOrig_meshID%d_iter%d.h5'%(meshID, i+1), FilePerProcess=False) or FSError.PrintAndExit()
 
 # export data logs
 dataLog.ExportDataXML(localDirOut+'datalog.xml') or FSError.PrintAndExit()
