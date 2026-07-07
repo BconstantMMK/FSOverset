@@ -1,4 +1,4 @@
-from FSDataManager import FSClac, FSError, FSDataLog, FSDataManager
+from FSDataManager import FSError, FSDataLog, FSDataManager
 
 from CODA import DiscretizationFactory, TimeIntegrationFactory
 from CODA import StopNumIterations, StopRelativeReduction
