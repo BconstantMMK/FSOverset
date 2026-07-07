@@ -1,22 +1,31 @@
-from FSDataManager import FSClac, FSError, FSDataLog, FSDataManager
+from FSDataManager import FSError, FSDataLog, FSDataManager
 
 from CODA import DiscretizationFactory, TimeIntegrationFactory
 from CODA import StopNumIterations, StopRelativeReduction
 from CODA import MonitorTabular, MonitorSelection
 from CODA.CODAHelpers import BuildDiscretizationParameterTrees, BuildTimeIntegrationParameterTrees
 
-from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractPyTree, extractActiveSubMesh, copySolution, generateDiscParasFromMesh
+from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractActiveSubMesh, copySolution, generateDiscParasFromMesh, getClacInfo, getMeshKeys
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
-
-import math
 
 # mesh settings
 localDirIn = 'INPUT/'
-localDirOut = 'OUTPUT/TEST_RANS/'
+localDirOut = 'OUTPUT/STEADY/'
 
 # solver settings
 targetResidualReduction = 1.0e-8
 maximumNumberOfIterations = 200
+
+meshDict = {
+    0: {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 4., 'meshKey':'background'},
+    1: {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1., 'meshKey':'naca'},
+}
+offsetDict = {
+    1: 0.3
+}
+blankingDict = {
+    0: [1]
+}
 
 discSelectionParaDict = {
     "PDE" : "Euler",
@@ -70,82 +79,47 @@ timeIntegrationParaDict = {
         },
     }
 }
-## ====================================
-## blanking data
-## ====================================
-offsetDict = {}; offsetDict[1] = 0.3
-blankingDict = {0:[1]}
 
 ## ====================================
-globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
-globalProcID = globalClac.GetProcID()
-nGlobalProcs = globalClac.GetNProcs()
-
-if nGlobalProcs < 2:
-    raise ValueError("howToUseCassiopeeHoleCuttingSteadySim must be run with at least 2 MPI processes.")
-
+## Get clacs, fsmesh, etc.
 ## ====================================
-## Set local clacs
-## ====================================
-weightBackground = 4.0
-weightAirfoil = 1.0
-weightSum = weightBackground + weightAirfoil
 
-nProcsAirfoil = math.ceil(nGlobalProcs * weightAirfoil / weightSum)
-nProcsBackground = nGlobalProcs - nProcsAirfoil
+# Get clacs
+meshID, clac, globalClac, masterClac = getClacInfo(meshDict)
+meshFilename = meshDict[meshID]['meshFilename']
+meshKeyActive, meshKeyOrig = getMeshKeys(meshID, meshDict, blankingDict)
 
-meshID = 0 if globalProcID in range(0, nProcsBackground) else 1
-    
-localClac = FSClac()
-globalClac.DivideIntoGroups(meshID, localClac)
-
-## ====================================
-## Import Mesh
-## ====================================
-if meshID == 0:
-    meshFilename = localDirIn+'background.h5'
-    meshKeyOriginal = 'back_orig'  # the original background mesh
-    meshKeyActive = 'back_active'  # the active part of the background mesh
-else:
-    meshFilename = localDirIn+'naca.h5'
-    meshKeyOriginal = 'naca_orig'
-    meshKeyActive = 'naca_active'
-
-# MANDATORY to set to 'none' for non-blanked meshes for extractActiveSubMesh to work properly
-if meshID not in blankingDict:
-   meshKeyOriginal = 'none'
-   meshKeyActive = 'none'
-
-## ====================================
-## Create Data Manager & set Original/Active
-## ====================================    
+# Get orig mesh
 dm = FSDataManager(globalClac)
+fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
+meshOps = buildMeshOps(meshFilename, verbose=False)
+fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
-fsmeshOriginal = dm.GetMesh(meshKeyOriginal, localClac, True)
-fsmeshActive = dm.GetMesh(meshKeyActive, localClac, True)
+# Get active mesh
+fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
-meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=True)
-fsmeshOriginal.DoOps(meshOps) or FSError.PrintAndExit()
+## ====================================
+## initialize FSOverset
+## ====================================
 
-
-mask = generateBlankingMask(
-    clac=localClac, fsmesh=fsmeshOriginal,
+blankingMaskDict = generateBlankingMask(
+    clac=clac, fsmesh=fsmeshOrig,
     offsetDict=offsetDict,
     meshID=meshID,
     localDir=localDirOut,
     offsetFromBC='BCWall',
     check=False)
 
-
-blankingObj = FSOverset(clac=localClac, fsmesh=fsmeshOriginal, meshID=meshID, blankingDict=blankingDict)
-# il faut le mettre 1 fois pour initialiser le fsmeshactive pour creer le local numbering
-blankingObj.computeBlanking(blankingMaskDict=mask)
-extractActiveSubMesh(dm, meshKeyOriginal, meshKeyActive)
+blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, blankingDict=blankingDict)
+# need to run it once to initialize fsmeshActive and create the local numbering
+blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
+extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
 
 ## ====================================
 ## Set up CODA Dics & Settings
 ## ====================================
-fsmeshActive.CreateLocalNumbering() # mandatory for Cmpi.size > 2
+
+fsmeshActive.CreateLocalNumbering()
 
 discParaDict = generateDiscParasFromMesh(fsmeshActive, discParaDict)
 
@@ -184,11 +158,11 @@ status = timeIntegration.Iterate([iterationCallbacks], state, dataLog)
 state.ExportToFSMesh(disc.GetMeshInterface(), fsmeshActive, 'State') or FSError.PrintAndExit()
 
 # copy solution to original grids
-copySolution(dm, meshKeyOriginal, meshKeyActive)
+copySolution(dm, meshKeyOrig, meshKeyActive)
 
 # export convergence history
 dataLog.ExportDataTECPLOT(localDirOut+'monitor.dat', 'l2-norms') or FSError.PrintAndExit()
 
 # export flow solution
 fsmeshActive.ExportMeshHDF5(HDF5Filename=localDirOut+'fsmeshActive_meshID%d.h5'%(meshID), FilePerProcess=False) or FSError.PrintAndExit()
-fsmeshOriginal.ExportMeshHDF5(HDF5Filename=localDirOut+'fsmeshOriginal_meshID%d.h5'%(meshID), FilePerProcess=False) or FSError.PrintAndExit()
+fsmeshOrig.ExportMeshHDF5(HDF5Filename=localDirOut+'fsmeshOrig_meshID%d.h5'%(meshID), FilePerProcess=False) or FSError.PrintAndExit()
