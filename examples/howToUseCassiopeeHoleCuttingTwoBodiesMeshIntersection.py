@@ -11,7 +11,6 @@ meshDict = {
     0: {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1., 'meshKey':'background'},
     1: {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1., 'meshKey':'naca'},
     2: {'meshFilename': localDirIn+'cylinder_large.h5', 'meshProcessorWeight': 1., 'meshKey':'cyl'},
-
 }
 offsetDict = {
     1: 0.3,

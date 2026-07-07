@@ -1,43 +1,31 @@
 # Usage: kpython -n3 -t4 generateBlankingMask_m3.py
-from FSDataManager import FSClac, FSError, FSDataManager
+from FSDataManager import FSError, FSDataManager
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
-from FSOverset.FSOverset import generateBlankingMask
+from FSOverset.FSOverset import generateBlankingMask, getClacInfo
 import KCore.test as Ktest
 
 localDirIn = './INPUT/'
 
-offsetDict = {}
-offsetDict[1] = 0.
-offsetDict[2] = 0.
+meshDict = {
+    0: {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1., 'meshKey':'background'},
+    1: {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1., 'meshKey':'naca'},
+    2: {'meshFilename': localDirIn+'cylinder_small.h5', 'meshProcessorWeight': 1., 'meshKey':'cyl'}
+}
+offsetDict = {
+    1: 0.,
+    2: 0.
+}
 
-globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
-nGlobalProcs = globalClac.GetNProcs()
+# Get clacs
+meshID, clac, globalClac, masterClac = getClacInfo(meshDict)
+meshFilename = meshDict[meshID]['meshFilename']
+meshKey = meshDict[meshID]['meshKey']
 
-if nGlobalProcs < 3:
-    raise ValueError('generateBlankingMask_m3.py requires 3 processes at least.')
-
-globalProcID = globalClac.GetProcID()
-meshID = int(globalProcID // (nGlobalProcs / 3))
-
-clac = FSClac()
-globalClac.DivideIntoGroups(meshID, clac)
-
-if meshID == 0:
-    meshFilename = localDirIn+'background.h5'
-    meshKeyOrig = 'back_orig'
-    meshKeyActive = 'back_active'
-elif meshID == 1:
-    meshFilename = localDirIn+'naca.h5'
-    meshKeyOrig = 'naca'
-    meshKeyActive = 'naca'
-else:
-    meshFilename = localDirIn+'cylinder_small.h5'
-    meshKeyOrig = 'cyl'
-    meshKeyActive = 'cyl'
-
+# Get orig mesh
 dm = FSDataManager(globalClac)
-fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
-meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
+fsmeshOrig = dm.GetMesh(meshKey, clac, True)
+meshOps = buildMeshOps(meshFilename, verbose=False)
+fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
 # Automatically generate blankingMaskDict from offsetDict
@@ -49,5 +37,5 @@ blankingMaskDict = generateBlankingMask(
     check=False)
 
 # test
-if globalProcID == 0:
+if globalClac.GetProcID() == 0:
     for item in blankingMaskDict: Ktest.testT(blankingMaskDict[item],item)
