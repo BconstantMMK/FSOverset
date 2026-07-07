@@ -13,6 +13,7 @@ import CPlot.PyTree as CPlot
 import CPlot.Decorator as Decorator
 
 from FSDataManager import (
+    FSClac,
     FSIntArray, FSStringArray, FSFloatArray,
     FSUnstructVolumeCellTypes,
     FSDataSpecArray, FSDatasetInfo,
@@ -259,11 +260,11 @@ def display(clac, fsmesh, meshID, variables, it=0, displayDict={}, localDir='./'
 # FSOversetBlanking Functions
 # ---------------------------------------------------------------------------- #
 
-def extractActiveSubMesh(fsdatamanager, MeshKeyOrig, meshKeyActive):
+def extractActiveSubMesh(fsdatamanager, meshKeyOrig, meshKeyActive):
     """Extract the active mesh (blanked mesh) from the original mesh (non-blanked mesh) based on cellN dataset"""
     # cellN = 0: blanked cells
     # cellN = 1: non-blanked cells
-    dataManagerOps = (('BlankMesh', {'MeshKeyOrig'     : MeshKeyOrig,
+    dataManagerOps = (('BlankMesh', {'MeshKeyOrig'     : meshKeyOrig,
                                      'MeshKeyActive'   : meshKeyActive,
                                      'DatasetNameCellNature': 'cellN',
                                      'QuantityNameCellNature': 'cellN',
@@ -274,11 +275,11 @@ def extractActiveSubMesh(fsdatamanager, MeshKeyOrig, meshKeyActive):
     fsdatamanager.DoOps(dataManagerOps) or FSError.PrintAndExit()
     return None
 
-def copySolution(fsdatamanager, MeshKeyOrig, meshKeyActive):
+def copySolution(fsdatamanager, meshKeyOrig, meshKeyActive):
     """Copy the flow solution from the active mesh (blanked mesh) to the original mesh (non-blanked mesh)"""
     # cellN = 0: blanked cells
     # cellN = 1: non-blanked cells
-    dataManagerOps = (('CopyDataOfBlankedMesh', {'MeshKeyOrig'    : MeshKeyOrig,
+    dataManagerOps = (('CopyDataOfBlankedMesh', {'MeshKeyOrig'    : meshKeyOrig,
                                                  'MeshKeyActive'  : meshKeyActive,
                                                  'AttributeNameDataAvailable': 'DataPresent',
                                                  'InitBlankedCellData': 2,
@@ -326,6 +327,80 @@ def getWallBoundaryMarkers(fsmesh):
     for key, value in treatments.items():
         if 'Wall' in key: wallMarkers.extend(value)
     return wallMarkers
+
+def getClacInfo(meshDict):
+    globalClac = FSClac()
+    globalProcID = globalClac.GetProcID()
+    nGlobalProcs = globalClac.GetNProcs()
+
+    nMeshes = len(meshDict)
+
+    # first security check
+    if nGlobalProcs < nMeshes:
+        raise ValueError('FSOverset: the number of MPI processes must be greater or equal to the number of meshes (nMeshes = %d)'%nMeshes)
+
+    # compute total mesh weight and sort meshIDs per weight
+    for meshIDLocal in meshDict: 
+        if 'meshProcessorWeight' not in meshDict[meshIDLocal]: 
+            meshDict[meshIDLocal]['meshProcessorWeight'] = 1.0 # default value
+    weightTotal = sum(meshDict[meshID]['meshProcessorWeight'] for meshID in meshDict)
+    sortedMeshIDs = sorted(meshDict.keys(), key=lambda x: meshDict[x]['meshProcessorWeight'], reverse=True)
+
+    # initialize balancingDict
+    balancingDict = {key: 0 for key in meshDict}
+    for meshIDLocal in meshDict:
+        nProcs = math.floor(nGlobalProcs*meshDict[meshIDLocal]['meshProcessorWeight']/weightTotal)
+        balancingDict[meshIDLocal] = max(1, nProcs) # at least one proc per mesh
+
+    # correct balancingDict based on nGlobalProcs
+    diffBalancing = nGlobalProcs - sum(balancingDict.values())
+    # too many procs: remove values from lightest to heaviest meshID
+    if diffBalancing < 0:
+        pos = -1
+        while diffBalancing < 0:
+            meshIDLocal = sortedMeshIDs[pos]
+            if balancingDict[meshIDLocal] > 1:
+                balancingDict[meshIDLocal] -= 1
+                diffBalancing += 1
+            pos -= 1
+    # too few procs: add values from heaviest to lightest meshID
+    elif diffBalancing > 0:
+        pos = 0
+        while diffBalancing > 0:
+            meshIDLocal = sortedMeshIDs[pos]
+            balancingDict[meshIDLocal] += 1
+            diffBalancing -= 1
+            pos += 1
+
+    # get final meshID per proc
+    threshold = 0
+    meshID = None
+    for meshIDLocal in sortedMeshIDs:
+        threshold += balancingDict[meshIDLocal]
+        if globalProcID < threshold: 
+            meshID = meshIDLocal
+            break
+    
+    # get local and master clacs
+    clac = FSClac()
+    globalClac.DivideIntoGroups(meshID, clac)
+
+    master = clac.GetProcID() == 0
+    masterClac = FSClac()
+    globalClac.DivideIntoGroups(master, masterClac)
+
+    return meshID, clac, globalClac, masterClac
+
+def getMeshKeys(meshID, meshDict, blankingDict):
+    meshKey = meshDict[meshID]['meshKey']
+    meshKeyOrig = 'none'
+    meshKeyActive = 'none'
+    if meshID in blankingDict:
+        if blankingDict[meshID]: # not None or []
+            meshKeyOrig = meshKey + '_orig'
+            meshKeyActive = meshKey + '_active'
+
+    return meshKeyOrig, meshKeyActive
 
 def initGridVelocity(fsmesh):
     if not fsmesh.HasUnstructDataset('GridVelocity'):
