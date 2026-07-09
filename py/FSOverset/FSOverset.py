@@ -13,6 +13,7 @@ import CPlot.PyTree as CPlot
 import CPlot.Decorator as Decorator
 
 from FSDataManager import (
+    FSClac,
     FSIntArray, FSStringArray, FSFloatArray,
     FSUnstructVolumeCellTypes,
     FSDataSpecArray, FSDatasetInfo,
@@ -41,15 +42,15 @@ __RAD2DEG__ = 180./math.pi
 
 class FSOverset:
 
-    def __init__(self, clac, fsmesh, meshID, dictOfBlanking={}):
+    def __init__(self, clac, fsmesh, meshID, blankingDict={}):
         self.clac = clac
         self.fsmesh = fsmesh
         self.meshID = meshID
-        self.dictOfBlanking = dictOfBlanking
+        self.blankingDict = blankingDict
         self.pyTree = None
 
-        if meshID in dictOfBlanking:
-            if len(dictOfBlanking[meshID])>0:
+        if meshID in blankingDict:
+            if len(blankingDict[meshID])>0:
                 self.pyTree = extractPyTree(clac=clac, fsmesh=fsmesh)
         self.cellNName = 'cellN' # cellN located at the nodes 
 
@@ -58,18 +59,18 @@ class FSOverset:
             if self.fsmesh.HasCellType(cellType):
                 self.fsVolumeCellTypes.Append(cellType)
 
-    def computeBlanking(self, dictOfMasks, blankingType='center_in', dim=3):
+    def computeBlanking(self, blankingMaskDict, blankingType='center_in', dim=3):
         validBlankingTypes = ['center_in', 'node_in', 'cell_intersect']
         if blankingType not in validBlankingTypes:
             raise ValueError("computeBlanking: invalid blankingType (%s). Possible values are %s"%(blankingType, validBlankingTypes))
         
         meshIDTarget = self.meshID
-        dictOfBlanking = self.dictOfBlanking
+        blankingDict = self.blankingDict
         if self.pyTree is not None:
             C._deleteEmptyZones(self.pyTree)
 
-            for maskID in dictOfBlanking[meshIDTarget]:
-                bodiesL = Internal.getZones(dictOfMasks[maskID])
+            for maskID in blankingDict[meshIDTarget]:
+                bodiesL = Internal.getZones(blankingMaskDict[maskID])
                 self.pyTree = X.blankCellsTri(self.pyTree, [bodiesL], [], blankingType=blankingType, cellNName=self.cellNName) 
 
             # Create an FSDM dataset for cellN obtained in Cassiopee
@@ -99,8 +100,9 @@ class FSOverset:
 # ---------------------------------------------------------------------------- #
 # FSOverset Functions
 # ---------------------------------------------------------------------------- #
-#dictOfOffsets : mandatory (can be zero) to specify if a BC defines a blanking mask or not.
-def generateBlankingMask(clac, fsmesh, meshID, dictOfOffsets, offsetFromBC='BCOverset', dim=3, localDir='./', check=False):
+
+#offsetDict : mandatory (can be zero) to specify if a BC defines a blanking mask or not.
+def generateBlankingMask(clac, fsmesh, meshID, offsetDict, offsetFromBC='BCOverset', dim=3, localDir='./', check=False):
     """Generate a blanking mask from a specified BC"""
     validBCNames = ['BCOverset', 'BCWall']
     if offsetFromBC not in validBCNames:
@@ -109,7 +111,7 @@ def generateBlankingMask(clac, fsmesh, meshID, dictOfOffsets, offsetFromBC='BCOv
     tb = None
 
     # Conversion of the curvilinear mesh of the body ('standard' conversion)
-    if meshID in dictOfOffsets:
+    if meshID in offsetDict:
         bcDict = generateBCDictFromMesh(fsmesh)
         if any(bcDict[bc].startswith(offsetFromBC) for bc in bcDict):
             if fsmesh.HasUnstructDataset('UndeformedCoordinates'): coordsName = 'UndeformedCoordinates'
@@ -150,27 +152,27 @@ def generateBlankingMask(clac, fsmesh, meshID, dictOfOffsets, offsetFromBC='BCOv
            bodies[meshID_l] = G.close(bodies[meshID_l])
 
     # Create offset bodies per meshID
-    bodies_offset = bodies.copy()
+    blankingMaskDict = bodies.copy()
 
     sign_offset = 1. if offsetFromBC == 'BCWall' else -1.
-    for meshID_l in bodies_offset:
-        offsetdist = dictOfOffsets[meshID_l]
+    for meshID_l in blankingMaskDict:
+        offsetdist = offsetDict[meshID_l]
         if offsetdist > 0.:
-            BB = G.bbox(bodies_offset[meshID_l])
+            BB = G.bbox(blankingMaskDict[meshID_l])
             xmin = BB[0]; ymin = BB[1]; zmin = BB[2]
             xmax = BB[3]; ymax = BB[4]; zmax = BB[5]
             dmax = max((xmax-xmin), (ymax-ymin), (zmax-zmin))
             ppul = 50./dmax
             if Cmpi.master: print('generateBlankingMask: generating offset (meshID=%d) with ppul=%f and dmax=%f'%(meshID_l, ppul, dmax))
-            bodies_offset[meshID_l] = D.offsetSurface(bodies_offset[meshID_l], offset=sign_offset*dictOfOffsets[meshID_l], pointsPerUnitLength=ppul, algo=0, dim=dim)[0]
-            if Cmpi.master and check: C.convertPyTree2File(bodies_offset[meshID_l], localDir+'wall_offset_%s.plt' %meshID_l)
-            bodies_offset[meshID_l] = C.convertArray2Tetra(bodies_offset[meshID_l])
+            blankingMaskDict[meshID_l] = D.offsetSurface(blankingMaskDict[meshID_l], offset=sign_offset*offsetDict[meshID_l], pointsPerUnitLength=ppul, algo=0, dim=dim)[0]
+            if Cmpi.master and check: C.convertPyTree2File(blankingMaskDict[meshID_l], localDir+'wall_offset_%s.plt' %meshID_l)
+            blankingMaskDict[meshID_l] = C.convertArray2Tetra(blankingMaskDict[meshID_l])
         else: 
-            bodies_offset[meshID_l] = C.convertArray2Tetra(bodies[meshID_l])
+            blankingMaskDict[meshID_l] = C.convertArray2Tetra(bodies[meshID_l])
 
-        bodies_offset[meshID_l] = G.close(bodies_offset[meshID_l])
+        blankingMaskDict[meshID_l] = G.close(blankingMaskDict[meshID_l])
 
-    return bodies_offset
+    return blankingMaskDict
 
 def extractPyTree(clac, fsmesh):
     """Extract a pyTree mesh from a fsmesh"""
@@ -258,11 +260,11 @@ def display(clac, fsmesh, meshID, variables, it=0, displayDict={}, localDir='./'
 # FSOversetBlanking Functions
 # ---------------------------------------------------------------------------- #
 
-def extractActiveSubMesh(fsdatamanager, MeshKeyOrig, meshKeyActive):
+def extractActiveSubMesh(fsdatamanager, meshKeyOrig, meshKeyActive):
     """Extract the active mesh (blanked mesh) from the original mesh (non-blanked mesh) based on cellN dataset"""
     # cellN = 0: blanked cells
     # cellN = 1: non-blanked cells
-    dataManagerOps = (('BlankMesh', {'MeshKeyOrig'     : MeshKeyOrig,
+    dataManagerOps = (('BlankMesh', {'MeshKeyOrig'     : meshKeyOrig,
                                      'MeshKeyActive'   : meshKeyActive,
                                      'DatasetNameCellNature': 'cellN',
                                      'QuantityNameCellNature': 'cellN',
@@ -273,11 +275,11 @@ def extractActiveSubMesh(fsdatamanager, MeshKeyOrig, meshKeyActive):
     fsdatamanager.DoOps(dataManagerOps) or FSError.PrintAndExit()
     return None
 
-def copySolution(fsdatamanager, MeshKeyOrig, meshKeyActive):
+def copySolution(fsdatamanager, meshKeyOrig, meshKeyActive):
     """Copy the flow solution from the active mesh (blanked mesh) to the original mesh (non-blanked mesh)"""
     # cellN = 0: blanked cells
     # cellN = 1: non-blanked cells
-    dataManagerOps = (('CopyDataOfBlankedMesh', {'MeshKeyOrig'    : MeshKeyOrig,
+    dataManagerOps = (('CopyDataOfBlankedMesh', {'MeshKeyOrig'    : meshKeyOrig,
                                                  'MeshKeyActive'  : meshKeyActive,
                                                  'AttributeNameDataAvailable': 'DataPresent',
                                                  'InitBlankedCellData': 2,
@@ -325,6 +327,80 @@ def getWallBoundaryMarkers(fsmesh):
     for key, value in treatments.items():
         if 'Wall' in key: wallMarkers.extend(value)
     return wallMarkers
+
+def getClacInfo(meshDict):
+    globalClac = FSClac()
+    globalProcID = globalClac.GetProcID()
+    nGlobalProcs = globalClac.GetNProcs()
+
+    nMeshes = len(meshDict)
+
+    # first security check
+    if nGlobalProcs < nMeshes:
+        raise ValueError('FSOverset: the number of MPI processes must be greater or equal to the number of meshes (nMeshes = %d)'%nMeshes)
+
+    # compute total mesh weight and sort meshIDs per weight
+    for meshIDLocal in meshDict: 
+        if 'meshProcessorWeight' not in meshDict[meshIDLocal]: 
+            meshDict[meshIDLocal]['meshProcessorWeight'] = 1.0 # default value
+    weightTotal = sum(meshDict[meshID]['meshProcessorWeight'] for meshID in meshDict)
+    sortedMeshIDs = sorted(meshDict.keys(), key=lambda x: meshDict[x]['meshProcessorWeight'], reverse=True)
+
+    # initialize balancingDict
+    balancingDict = {key: 0 for key in meshDict}
+    for meshIDLocal in meshDict:
+        nProcs = math.floor(nGlobalProcs*meshDict[meshIDLocal]['meshProcessorWeight']/weightTotal)
+        balancingDict[meshIDLocal] = max(1, nProcs) # at least one proc per mesh
+
+    # correct balancingDict based on nGlobalProcs
+    diffBalancing = nGlobalProcs - sum(balancingDict.values())
+    # too many procs: remove values from lightest to heaviest meshID
+    if diffBalancing < 0:
+        pos = -1
+        while diffBalancing < 0:
+            meshIDLocal = sortedMeshIDs[pos]
+            if balancingDict[meshIDLocal] > 1:
+                balancingDict[meshIDLocal] -= 1
+                diffBalancing += 1
+            pos -= 1
+    # too few procs: add values from heaviest to lightest meshID
+    elif diffBalancing > 0:
+        pos = 0
+        while diffBalancing > 0:
+            meshIDLocal = sortedMeshIDs[pos]
+            balancingDict[meshIDLocal] += 1
+            diffBalancing -= 1
+            pos += 1
+
+    # get final meshID per proc
+    threshold = 0
+    meshID = None
+    for meshIDLocal in sortedMeshIDs:
+        threshold += balancingDict[meshIDLocal]
+        if globalProcID < threshold: 
+            meshID = meshIDLocal
+            break
+    
+    # get local and master clacs
+    clac = FSClac()
+    globalClac.DivideIntoGroups(meshID, clac)
+
+    master = clac.GetProcID() == 0
+    masterClac = FSClac()
+    globalClac.DivideIntoGroups(master, masterClac)
+
+    return meshID, clac, globalClac, masterClac
+
+def getMeshKeys(meshID, meshDict, blankingDict):
+    meshKey = meshDict[meshID]['meshKey']
+    meshKeyOrig = 'none'
+    meshKeyActive = 'none'
+    if meshID in blankingDict:
+        if blankingDict[meshID]: # not None or []
+            meshKeyOrig = meshKey + '_orig'
+            meshKeyActive = meshKey + '_active'
+
+    return meshKeyOrig, meshKeyActive
 
 def initGridVelocity(fsmesh):
     if not fsmesh.HasUnstructDataset('GridVelocity'):

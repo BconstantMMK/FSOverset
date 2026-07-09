@@ -1,76 +1,53 @@
 # Usage: kpython -n2 -t4 howToUseCassiopeeHoleCutting.py
-from FSDataManager import FSClac, FSError, FSDataManager
+from FSDataManager import FSError, FSDataManager
 
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
-from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractActiveSubMesh
+from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractActiveSubMesh, getClacInfo, getMeshKeys
 
 localDirIn = './INPUT/'
 localDirOut = './OUTPUT/TEST1/'
 
-#===============================
-#blanking data - user defined
-#===============================
-dictOfOffsets={}
-dictOfOffsets[1] = 0.3
-dictOfBlanking = {
-    0:[1]
+meshDict = {
+    0: {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1., 'meshKey':'background'},
+    1: {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1., 'meshKey':'naca'},
 }
-#===============================
-globalClac = FSClac()  # by default, FSClac uses MPI_COMM_WORLD, i.e. all processes available
-nGlobalProcs = globalClac.GetNProcs()
+offsetDict = {
+    1: 0.3
+}
+blankingDict = {
+    0: [1]
+}
 
-if nGlobalProcs < 2:
-    raise ValueError("howToUseCassiopeeHoleCutting must be run with at least 2 MPI processes.")
+# Get clacs
+meshID, clac, globalClac, masterClac = getClacInfo(meshDict)
+meshFilename = meshDict[meshID]['meshFilename']
+meshKeyActive, meshKeyOrig = getMeshKeys(meshID, meshDict, blankingDict)
 
-globalProcID = globalClac.GetProcID()
-meshID = int(globalProcID // (nGlobalProcs / 2))
-
-clac = FSClac()
-globalClac.DivideIntoGroups(meshID, clac)
-
-if meshID == 0:
-    meshFilename = localDirIn+'background.h5'
-    meshKeyOrig = 'back_orig'  # the original background mesh
-    meshKeyActive = 'back_active'  # the active part of the background mesh
-else:
-    meshFilename = localDirIn+'naca.h5'
-    meshKeyOrig = 'naca'
-    meshKeyActive = 'naca'
-
-
+# Get orig mesh
 dm = FSDataManager(globalClac)
 fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
-meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=False)
+meshOps = buildMeshOps(meshFilename, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
-# Get active mesh - useful for CODA computations where the active part is extracted
+# Get active mesh
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
-#FSOverset 
-dictOfMasks = generateBlankingMask(
+# FSOverset 
+blankingMaskDict = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
-    dictOfOffsets=dictOfOffsets,
+    offsetDict=offsetDict,
     meshID=meshID,
     localDir=localDirOut,
     offsetFromBC='BCWall',  
     check=False)
 
-blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, dictOfBlanking=dictOfBlanking)
+blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, blankingDict=blankingDict)
 
 # 1-update cell nature field with 0 (blanked) and 1 (active)
-blankingObj.computeBlanking(dictOfMasks=dictOfMasks)
+blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
 
 # 2-remove blanked cells
 extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
 
-fsmeshOrig.ExportMeshTECPLOT(
-    Filename=localDirOut+'blanking_mesh_%d.plt'%meshID,
-    FileFormat='binary',
-    PrefixDatasetName=True
-) or FSError.PrintAndExit()
-
-fsmeshActive.ExportMeshTECPLOT(
-    Filename=localDirOut+'blanked_mesh_%d.plt'%meshID,
-    FileFormat='binary',
-    PrefixDatasetName=True
-) or FSError.PrintAndExit()
+# 3-save active mesh
+fsmeshActive.ExportMeshHDF5(Filename=localDirOut+'blanked_mesh_%d.h5'%meshID) or FSError.PrintAndExit()
