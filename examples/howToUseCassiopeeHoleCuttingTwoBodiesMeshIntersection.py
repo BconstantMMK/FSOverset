@@ -1,5 +1,5 @@
 # Usage: kpython -n3 -t4 howToUseCassiopeeHoleCuttingTwoBodiesMeshIntersection.py
-from FSDataManager import FSClac, FSError, FSDataManager
+from FSDataManager import FSError, FSDataManager
 
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractActiveSubMesh, getClacInfo, getMeshKeys
@@ -14,24 +14,12 @@ meshDict = {
 }
 offsetDict = {
     1: 0.3,
-    2: 0.5
+    2: 0.3
 }
 blankingDict = {
     0: [1,2],
-    1: [2],
     2: [1]
 }
-
-# #===================
-# # blanking data - user defined
-# offsetDict={}
-# offsetDict[1]=0.3
-# offsetDict[2]=0.5
-
-# blankingDict={}
-# blankingDict[0]=[1,2]
-# blankingDict[1]=[2]
-# blankingDict[2]= [1]
 
 # Get clacs
 meshID, clac, globalClac, masterClac = getClacInfo(meshDict)

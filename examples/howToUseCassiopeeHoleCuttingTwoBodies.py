@@ -14,11 +14,10 @@ meshDict = {
 }
 offsetDict = {
     1: 0.3,
-    2: 0.1
+    2: 0.3
 }
 blankingDict = {
-    0: [1,2],
-    2: [1]
+    0: [1,2]
 }
 
 # Get clacs
