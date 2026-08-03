@@ -42,15 +42,15 @@ __RAD2DEG__ = 180./math.pi
 
 class FSOverset:
 
-    def __init__(self, clac, fsmesh, meshID, blankingDict={}):
+    def __init__(self, clac, fsmesh, meshKey, blankingDict={}):
         self.clac = clac
         self.fsmesh = fsmesh
-        self.meshID = meshID
+        self.meshKey = meshKey
         self.blankingDict = blankingDict
         self.pyTree = None
 
-        if meshID in blankingDict:
-            if len(blankingDict[meshID])>0:
+        if meshKey in blankingDict:
+            if len(blankingDict[meshKey])>0:
                 self.pyTree = extractPyTree(clac=clac, fsmesh=fsmesh)
         self.cellNName = 'cellN' # cellN located at the nodes 
 
@@ -59,18 +59,18 @@ class FSOverset:
             if self.fsmesh.HasCellType(cellType):
                 self.fsVolumeCellTypes.Append(cellType)
 
-    def computeBlanking(self, blankingMaskDict, blankingType='center_in', dim=3):
+    def computeBlanking(self, blankingMaskDict, blankingType='center_in'):
         validBlankingTypes = ['center_in', 'node_in', 'cell_intersect']
         if blankingType not in validBlankingTypes:
             raise ValueError("computeBlanking: invalid blankingType (%s). Possible values are %s"%(blankingType, validBlankingTypes))
         
-        meshIDTarget = self.meshID
+        meshKeyTarget = self.meshKey
         blankingDict = self.blankingDict
         if self.pyTree is not None:
             C._deleteEmptyZones(self.pyTree)
 
-            for maskID in blankingDict[meshIDTarget]:
-                bodiesL = Internal.getZones(blankingMaskDict[maskID])
+            for maskKey in blankingDict[meshKeyTarget]:
+                bodiesL = Internal.getZones(blankingMaskDict[maskKey])
                 self.pyTree = X.blankCellsTri(self.pyTree, [bodiesL], [], blankingType=blankingType, cellNName=self.cellNName) 
 
             # Create an FSDM dataset for cellN obtained in Cassiopee
@@ -101,8 +101,8 @@ class FSOverset:
 # FSOverset Functions
 # ---------------------------------------------------------------------------- #
 
-#offsetDict : mandatory (can be zero) to specify if a BC defines a blanking mask or not.
-def generateBlankingMask(clac, fsmesh, meshID, offsetDict, offsetFromBC='BCOverset', dim=3, localDir='./', check=False):
+# offsetDict : mandatory (can be zero) to specify if a BC defines a blanking mask or not.
+def generateBlankingMask(clac, fsmesh, meshKey, offsetDict, offsetFromBC='BCOverset', dim=3, localDir='./', check=False):
     """Generate a blanking mask from a specified BC"""
     validBCNames = ['BCOverset', 'BCWall']
     if offsetFromBC not in validBCNames:
@@ -111,7 +111,7 @@ def generateBlankingMask(clac, fsmesh, meshID, offsetDict, offsetFromBC='BCOvers
     tb = None
 
     # Conversion of the curvilinear mesh of the body ('standard' conversion)
-    if meshID in offsetDict:
+    if meshKey in offsetDict:
         bcDict = generateBCDictFromMesh(fsmesh)
         if any(bcDict[bc].startswith(offsetFromBC) for bc in bcDict):
             if fsmesh.HasUnstructDataset('UndeformedCoordinates'): coordsName = 'UndeformedCoordinates'
@@ -137,40 +137,42 @@ def generateBlankingMask(clac, fsmesh, meshID, offsetDict, offsetFromBC='BCOvers
                 tb = T.join(tb)
                 Cmpi._setProc(tb, Cmpi.rank)
                 param = Internal.getNodeFromName1(tb, '.Solver#Param')
-                Internal.newDataArray('meshID', parent=param, value=meshID)
+                Internal.newDataArray('meshKey', parent=param, value=meshKey)
 
-    # Create bodies per meshID
+    # Create bodies per meshKey
     tb = Cmpi.allgatherZones(tb)
     if Cmpi.master and check: C.convertPyTree2File(tb, localDir+'wall.plt')
     bodies = {}
     for zone in Internal.getZones(tb):
-        meshID_l = Internal.getNodeFromName(zone,'meshID')[1][0]
-        if meshID_l not in bodies.keys():
-            bodies[meshID_l] = zone
+        meshKeyNode = Internal.getNodeFromName(zone, 'meshKey')
+        meshKeyLocal = Internal.getValue(meshKeyNode)
+        if meshKeyLocal not in bodies.keys():
+            bodies[meshKeyLocal] = zone
         else:
-           bodies[meshID_l] = T.join(bodies[meshID_l],zone)
-           bodies[meshID_l] = G.close(bodies[meshID_l])
+           bodies[meshKeyLocal] = T.join(bodies[meshKeyLocal], zone)
+           bodies[meshKeyLocal] = G.close(bodies[meshKeyLocal])
 
-    # Create offset bodies per meshID
+    # Create offset bodies per meshKey
     blankingMaskDict = bodies.copy()
 
     sign_offset = 1. if offsetFromBC == 'BCWall' else -1.
-    for meshID_l in blankingMaskDict:
-        offsetdist = offsetDict[meshID_l]
+    for meshKeyLocal in blankingMaskDict:
+        offsetdist = offsetDict[meshKeyLocal]
         if offsetdist > 0.:
-            BB = G.bbox(blankingMaskDict[meshID_l])
+            BB = G.bbox(blankingMaskDict[meshKeyLocal])
             xmin = BB[0]; ymin = BB[1]; zmin = BB[2]
             xmax = BB[3]; ymax = BB[4]; zmax = BB[5]
             dmax = max((xmax-xmin), (ymax-ymin), (zmax-zmin))
             ppul = 50./dmax
-            if Cmpi.master: print('generateBlankingMask: generating offset (meshID=%d) with ppul=%f and dmax=%f'%(meshID_l, ppul, dmax))
-            blankingMaskDict[meshID_l] = D.offsetSurface(blankingMaskDict[meshID_l], offset=sign_offset*offsetDict[meshID_l], pointsPerUnitLength=ppul, algo=0, dim=dim)[0]
-            if Cmpi.master and check: C.convertPyTree2File(blankingMaskDict[meshID_l], localDir+'wall_offset_%s.plt' %meshID_l)
-            blankingMaskDict[meshID_l] = C.convertArray2Tetra(blankingMaskDict[meshID_l])
-        else: 
-            blankingMaskDict[meshID_l] = C.convertArray2Tetra(bodies[meshID_l])
+            if Cmpi.master: print('generateBlankingMask: generating offset (meshKey=%s) with ppul=%f and dmax=%f'%(meshKeyLocal, ppul, dmax))
+            blankingMaskDict[meshKeyLocal] = D.offsetSurface(blankingMaskDict[meshKeyLocal], offset=sign_offset*offsetDict[meshKeyLocal], pointsPerUnitLength=ppul, algo=0, dim=dim)[0]
+            if Cmpi.master and check: C.convertPyTree2File(blankingMaskDict[meshKeyLocal], localDir+'offset_%s_%s.plt'%(offsetFromBC, meshKeyLocal))
+            blankingMaskDict[meshKeyLocal] = C.convertArray2Tetra(blankingMaskDict[meshKeyLocal])
+        else:
+            Internal._rmNodesByName1(bodies[meshKeyLocal], '.Solver#Param')
+            blankingMaskDict[meshKeyLocal] = C.convertArray2Tetra(bodies[meshKeyLocal])
 
-        blankingMaskDict[meshID_l] = G.close(blankingMaskDict[meshID_l])
+        blankingMaskDict[meshKeyLocal] = G.close(blankingMaskDict[meshKeyLocal])
 
     return blankingMaskDict
 
@@ -184,7 +186,7 @@ def extractPyTree(clac, fsmesh):
     t = C.newPyTree(['Base', z])
     return t
 
-def display(clac, fsmesh, meshID, variables, it=0, displayDict={}, localDir='./', saveTree=False):
+def display(clac, fsmesh, meshKey, variables, it=0, displayDict={}, localDir='./', saveTree=False):
     # get display information
     colormap = displayDict.get('colormap', 24) # default: jet
     isoEdges = displayDict.get('isoEdges', 0.) # line width of isolines
@@ -204,15 +206,15 @@ def display(clac, fsmesh, meshID, variables, it=0, displayDict={}, localDir='./'
     convObj.convert2CGNS()
     zone = Internal.getZones(convObj.pyTree)[0]
     Cmpi._setProc(zone, Cmpi.rank)
-    zone[0] = '%d_%d'%(meshID, Cmpi.rank)
+    zone[0] = '%d_%d'%(meshKey, Cmpi.rank)
 
-    listOfMeshID = set(Cmpi.allgather(meshID))
-    listOfMeshID = sorted(listOfMeshID)
+    listOfMeshKeys = set(Cmpi.allgather(meshKey))
+    listOfMeshKeys = sorted(listOfMeshKeys)
     listOfZones = []
-    for i in listOfMeshID:
+    for meshKeyLocal in listOfMeshKeys:
         listOfZones.extend([
-            'MeshID%d'%i,
-            zone if meshID == i else []
+            meshKeyLocal,
+            zone if meshKey == meshKeyLocal else []
         ])
     
     t = C.newPyTree(listOfZones)
@@ -339,64 +341,65 @@ def getClacInfo(meshDict):
     if nGlobalProcs < nMeshes:
         raise ValueError('FSOverset: the number of MPI processes must be greater or equal to the number of meshes (nMeshes = %d)'%nMeshes)
 
-    # compute total mesh weight and sort meshIDs per weight
-    for meshIDLocal in meshDict: 
-        if 'meshProcessorWeight' not in meshDict[meshIDLocal]: 
-            meshDict[meshIDLocal]['meshProcessorWeight'] = 1.0 # default value
-    weightTotal = sum(meshDict[meshID]['meshProcessorWeight'] for meshID in meshDict)
-    sortedMeshIDs = sorted(meshDict.keys(), key=lambda x: meshDict[x]['meshProcessorWeight'], reverse=True)
+    # compute total mesh weight and sort meshKeys per weight
+    for meshKeyLocal in meshDict: 
+        if 'meshProcessorWeight' not in meshDict[meshKeyLocal]: 
+            meshDict[meshKeyLocal]['meshProcessorWeight'] = 1.0 # default value
+    weightTotal = sum(meshDict[meshKeyLocal]['meshProcessorWeight'] for meshKeyLocal in meshDict)
+    sortedMeshKeys = sorted(meshDict.keys(), key=lambda x: meshDict[x]['meshProcessorWeight'], reverse=True)
 
     # initialize balancingDict
-    balancingDict = {key: 0 for key in meshDict}
-    for meshIDLocal in meshDict:
-        nProcs = math.floor(nGlobalProcs*meshDict[meshIDLocal]['meshProcessorWeight']/weightTotal)
-        balancingDict[meshIDLocal] = max(1, nProcs) # at least one proc per mesh
+    balancingDict = {meshKeyLocal: 0 for meshKeyLocal in meshDict}
+    for meshKeyLocal in meshDict:
+        nProcs = math.floor(nGlobalProcs*meshDict[meshKeyLocal]['meshProcessorWeight']/weightTotal)
+        balancingDict[meshKeyLocal] = max(1, nProcs) # at least one proc per mesh
 
     # correct balancingDict based on nGlobalProcs
     diffBalancing = nGlobalProcs - sum(balancingDict.values())
-    # too many procs: remove values from lightest to heaviest meshID
+    # too many procs: remove values from lightest to heaviest meshKey
     if diffBalancing < 0:
         pos = -1
         while diffBalancing < 0:
-            meshIDLocal = sortedMeshIDs[pos]
-            if balancingDict[meshIDLocal] > 1:
-                balancingDict[meshIDLocal] -= 1
+            meshKeyLocal = sortedMeshKeys[pos]
+            if balancingDict[meshKeyLocal] > 1:
+                balancingDict[meshKeyLocal] -= 1
                 diffBalancing += 1
             pos -= 1
-    # too few procs: add values from heaviest to lightest meshID
+    # too few procs: add values from heaviest to lightest meshKey
     elif diffBalancing > 0:
         pos = 0
         while diffBalancing > 0:
-            meshIDLocal = sortedMeshIDs[pos]
-            balancingDict[meshIDLocal] += 1
+            meshKeyLocal = sortedMeshKeys[pos]
+            balancingDict[meshKeyLocal] += 1
             diffBalancing -= 1
             pos += 1
 
-    # get final meshID per proc
+    # get final meshKey per proc
     threshold = 0
-    meshID = None
-    for meshIDLocal in sortedMeshIDs:
-        threshold += balancingDict[meshIDLocal]
+    meshKey = None
+    for meshKeyLocal in sortedMeshKeys:
+        threshold += balancingDict[meshKeyLocal]
         if globalProcID < threshold: 
-            meshID = meshIDLocal
+            meshKey = meshKeyLocal
             break
     
     # get local and master clacs
     clac = FSClac()
-    globalClac.DivideIntoGroups(meshID, clac)
+    colors = {meshKeyLocal: pos for pos, meshKeyLocal in enumerate(sortedMeshKeys)}
+    meshColor = colors[meshKey] # meshColor must be an integer
+    globalClac.DivideIntoGroups(meshColor, clac)
 
     master = clac.GetProcID() == 0
     masterClac = FSClac()
     globalClac.DivideIntoGroups(master, masterClac)
 
-    return meshID, clac, globalClac, masterClac
+    return meshKey, meshColor, clac, globalClac, masterClac
 
-def getMeshKeys(meshID, meshDict, blankingDict):
-    meshKey = meshDict[meshID]['meshKey']
+def getMeshKeys(meshKey, blankingDict):
     meshKeyOrig = 'none'
     meshKeyActive = 'none'
-    if meshID in blankingDict:
-        if blankingDict[meshID]: # not None or []
+    if meshKey in blankingDict:
+        if blankingDict[meshKey]: # not None or []
             meshKeyOrig = meshKey + '_orig'
             meshKeyActive = meshKey + '_active'
 

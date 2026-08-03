@@ -7,19 +7,18 @@ import KCore.test as Ktest
 localDirIn = './INPUT/'
 
 meshDict = {
-    0: {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1., 'meshKey':'background'},
-    1: {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1., 'meshKey':'naca'},
-    2: {'meshFilename': localDirIn+'cylinder_small.h5', 'meshProcessorWeight': 1., 'meshKey':'cyl'}
+    'background': {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1.},
+    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.},
+    'cyl': {'meshFilename': localDirIn+'cylinder_small.h5', 'meshProcessorWeight': 1.}
 }
 offsetDict = {
-    1: 0.,
-    2: 0.
+    'naca': 0.,
+    'cyl': 0.
 }
 
 # Get clacs
-meshID, clac, globalClac, masterClac = getClacInfo(meshDict)
-meshFilename = meshDict[meshID]['meshFilename']
-meshKey = meshDict[meshID]['meshKey']
+meshKey, meshColor, clac, globalClac, masterClac = getClacInfo(meshDict)
+meshFilename = meshDict[meshKey]['meshFilename']
 
 # Get orig mesh
 dm = FSDataManager(globalClac)
@@ -32,10 +31,19 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 blankingMaskDict = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
     offsetDict=offsetDict,
-    meshID=meshID,
+    meshKey=meshKey,
     offsetFromBC='BCWall', 
     check=False)
 
 # test
+import Converter.Mpi as Cmpi
+import Converter.Internal as Internal
+
 if globalClac.GetProcID() == 0:
-    for item in blankingMaskDict: Ktest.testT(blankingMaskDict[item],item)
+    for pos, meshKeyLocal in enumerate(blankingMaskDict):
+        # The three lines below are meant to prevent regression
+        Cmpi._setProc(blankingMaskDict[meshKeyLocal], pos+1)
+        param = Internal.getNodeFromName1(blankingMaskDict[meshKeyLocal], '.Solver#Param')
+        Internal.newDataArray('meshID', parent=param, value=pos+1)
+        
+        Ktest.testT(blankingMaskDict[meshKeyLocal],pos+1)

@@ -8,20 +8,20 @@ localDirIn = './INPUT/'
 localDirOut = './OUTPUT/TEST1/'
 
 meshDict = {
-    0: {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1., 'meshKey':'background'},
-    1: {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1., 'meshKey':'naca'},
+    'background': {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1.},
+    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.}
 }
 offsetDict = {
-    1: 0.3
+    'naca': 0.3
 }
 blankingDict = {
-    0: [1]
+    'background': ['naca']
 }
 
 # Get clacs
-meshID, clac, globalClac, masterClac = getClacInfo(meshDict)
-meshFilename = meshDict[meshID]['meshFilename']
-meshKeyActive, meshKeyOrig = getMeshKeys(meshID, meshDict, blankingDict)
+meshKey, meshColor, clac, globalClac, masterClac = getClacInfo(meshDict)
+meshFilename = meshDict[meshKey]['meshFilename']
+meshKeyActive, meshKeyOrig = getMeshKeys(meshKey, blankingDict)
 
 # Get orig mesh
 dm = FSDataManager(globalClac)
@@ -36,12 +36,12 @@ fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 blankingMaskDict = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
     offsetDict=offsetDict,
-    meshID=meshID,
+    meshKey=meshKey,
     localDir=localDirOut,
     offsetFromBC='BCWall',  
     check=False)
 
-blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, blankingDict=blankingDict)
+blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
 
 # 1-update cell nature field with 0 (blanked) and 1 (active)
 blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
@@ -50,4 +50,4 @@ blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
 extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
 
 # 3-save active mesh
-fsmeshActive.ExportMeshHDF5(Filename=localDirOut+'blanked_mesh_%d.h5'%meshID) or FSError.PrintAndExit()
+fsmeshActive.ExportMeshHDF5(Filename=localDirOut+'blanked_mesh_%s.h5'%meshKey) or FSError.PrintAndExit()

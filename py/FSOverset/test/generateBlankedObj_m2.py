@@ -8,19 +8,19 @@ import KCore.test as Ktest
 localDirIn = './INPUT/'
 
 meshDict = {
-    0: {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1., 'meshKey':'background'},
-    1: {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1., 'meshKey':'naca'},
-    2: {'meshFilename': localDirIn+'cylinder_large.h5', 'meshProcessorWeight': 1., 'meshKey':'cyl'}
+    'background': {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1.},
+    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.},
+    'cyl': {'meshFilename': localDirIn+'cylinder_large.h5', 'meshProcessorWeight': 1.}
 }
 blankingDict = {
-    0: [1,2],
-    2: [1]
+    'background': ['naca','cyl'],
+    'cyl': ['naca']
 }
 
 # Get clacs
-meshID, clac, globalClac, masterClac = getClacInfo(meshDict)
-meshFilename = meshDict[meshID]['meshFilename']
-meshKeyActive, meshKeyOrig = getMeshKeys(meshID, meshDict, blankingDict)
+meshKey, meshColor, clac, globalClac, masterClac = getClacInfo(meshDict)
+meshFilename = meshDict[meshKey]['meshFilename']
+meshKeyActive, meshKeyOrig = getMeshKeys(meshKey, blankingDict)
 
 # Get orig mesh
 dm = FSDataManager(globalClac)
@@ -28,10 +28,10 @@ fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
 meshOps = buildMeshOps(meshFilename, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
-# Initialize FSOverset class for every meshID
-blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, blankingDict=blankingDict)
+# Initialize FSOverset class for every meshKey
+blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
 
 # test
 t = blankedObj.pyTree        
-if t is None: t = C.newPyTree(['DUMMY_%d'%meshID])
+if t is None: t = C.newPyTree(['DUMMY_%d'%meshColor])
 Ktest.testT(t,globalClac.GetProcID())

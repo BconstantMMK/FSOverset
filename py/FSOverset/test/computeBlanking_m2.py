@@ -10,24 +10,24 @@ import KCore.test as Ktest
 localDirIn = './INPUT/'
 
 meshDict = {
-    0: {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1., 'meshKey':'background'},
-    1: {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1., 'meshKey':'naca'},
-    2: {'meshFilename': localDirIn+'cylinder_large.h5', 'meshProcessorWeight': 1., 'meshKey':'cyl'}
+    'background': {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1.},
+    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.},
+    'cyl': {'meshFilename': localDirIn+'cylinder_large.h5', 'meshProcessorWeight': 1.}
 }
 blankingMaskDict = {
-    1: P.exteriorFaces(G.cart((-0.3,0,-0.2), (1.6,0.02,0.4), (2,2,2))),
-    2: P.exteriorFaces(G.cart((1.25,0,-0.2), (1.25,0.02,0.4), (2,2,2)))
+    'naca': P.exteriorFaces(G.cart((-0.3,0,-0.2), (1.6,0.02,0.4), (2,2,2))),
+    'cyl': P.exteriorFaces(G.cart((1.25,0,-0.2), (1.25,0.02,0.4), (2,2,2)))
 }
 blankingDict = {
-    0: [1,2],
-    1: [2],
-    2: [1]
+    'background': ['naca','cyl'],
+    'naca': ['cyl'],
+    'cyl': ['naca']
 }
 
 # Get clacs
-meshID, clac, globalClac, masterClac = getClacInfo(meshDict)
-meshFilename = meshDict[meshID]['meshFilename']
-meshKeyActive, meshKeyOrig = getMeshKeys(meshID, meshDict, blankingDict)
+meshKey, meshColor, clac, globalClac, masterClac = getClacInfo(meshDict)
+meshFilename = meshDict[meshKey]['meshFilename']
+meshKeyActive, meshKeyOrig = getMeshKeys(meshKey, blankingDict)
 
 # Get orig mesh
 dm = FSDataManager(globalClac)
@@ -35,8 +35,8 @@ fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
 meshOps = buildMeshOps(meshFilename, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
-# Initialize FSOverset class for every meshID
-blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, blankingDict=blankingDict)
+# Initialize FSOverset class for every meshKey
+blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
 
 # Update cell nature field with 0 (blanked) and 1 (active)
 blankedObj.computeBlanking(blankingMaskDict)
