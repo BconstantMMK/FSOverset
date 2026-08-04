@@ -50,4 +50,4 @@ blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
 extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
 
 # 3-save active mesh
-fsmeshActive.ExportMeshHDF5(Filename=localDirOut+'blanked_mesh_%s.h5'%meshKey) or FSError.PrintAndExit()
+fsmeshActive.ExportMeshHDF5(Filename=localDirOut+'%s_active.h5'%meshKey) or FSError.PrintAndExit()

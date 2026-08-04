@@ -17,14 +17,14 @@ targetResidualReduction = 1.0e-8
 maximumNumberOfIterations = 200
 
 meshDict = {
-    0: {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 4., 'meshKey':'background'},
-    1: {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1., 'meshKey':'naca'},
+    'background': {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 4.},
+    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.},
 }
 offsetDict = {
-    1: 0.3
+    'naca': 0.3
 }
 blankingDict = {
-    0: [1]
+    'background': ['naca']
 }
 
 discSelectionParaDict = {
@@ -85,9 +85,9 @@ timeIntegrationParaDict = {
 ## ====================================
 
 # Get clacs
-meshID, clac, globalClac, masterClac = getClacInfo(meshDict)
-meshFilename = meshDict[meshID]['meshFilename']
-meshKeyActive, meshKeyOrig = getMeshKeys(meshID, meshDict, blankingDict)
+meshKey, meshColor, clac, globalClac, masterClac = getClacInfo(meshDict)
+meshFilename = meshDict[meshKey]['meshFilename']
+meshKeyActive, meshKeyOrig = getMeshKeys(meshKey, blankingDict)
 
 # Get orig mesh
 dm = FSDataManager(globalClac)
@@ -105,12 +105,12 @@ fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 blankingMaskDict = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
     offsetDict=offsetDict,
-    meshID=meshID,
+    meshKey=meshKey,
     localDir=localDirOut,
     offsetFromBC='BCWall',
     check=False)
 
-blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, blankingDict=blankingDict)
+blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
 # need to run it once to initialize fsmeshActive and create the local numbering
 blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
 extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
@@ -164,5 +164,5 @@ copySolution(dm, meshKeyOrig, meshKeyActive)
 dataLog.ExportDataTECPLOT(localDirOut+'monitor.dat', 'l2-norms') or FSError.PrintAndExit()
 
 # export flow solution
-fsmeshActive.ExportMeshHDF5(HDF5Filename=localDirOut+'fsmeshActive_meshID%d.h5'%(meshID), FilePerProcess=False) or FSError.PrintAndExit()
-fsmeshOrig.ExportMeshHDF5(HDF5Filename=localDirOut+'fsmeshOrig_meshID%d.h5'%(meshID), FilePerProcess=False) or FSError.PrintAndExit()
+fsmeshActive.ExportMeshHDF5(HDF5Filename=localDirOut+'solution_%s_active.h5'%meshKey, FilePerProcess=False) or FSError.PrintAndExit()
+fsmeshOrig.ExportMeshHDF5(HDF5Filename=localDirOut+'solution_%s_orig.h5'%meshKey, FilePerProcess=False) or FSError.PrintAndExit()
