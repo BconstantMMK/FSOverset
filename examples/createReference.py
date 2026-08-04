@@ -69,13 +69,15 @@ Internal._rmNodesFromName(t_naca, 'BC*')
 z1 = Internal.getZones(t_back)[0]; z1[0] = 'back'
 z2 = Internal.getZones(t_naca)[0]; z2[0] = 'naca'
 
-t = C.mergeConnectivity(z1, z2)
+t = C.mergeConnectivity(z2, z1)
 
 # 3 - add BC to zones
 for (subzone, bcname, bctype) in BCInfo:
     C._addBC2Zone(t, bcname, bctype, subzone=subzone)
 
-# Convert CGNS to H5
+# 4- Convert CGNS to H5
+C.convertPyTree2File(t, localDir+'%s.cgns'%fname)
+
 convObj = FSCGNSConverter(pyTree=t, flipYZAxes=False)
 convObj.convert2FSDM()
 convObj.export(filename=localDir+'%s.h5'%fname)
