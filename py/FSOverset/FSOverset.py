@@ -50,7 +50,7 @@ class FSOverset:
         self.pyTree = None
 
         if meshKey in blankingDict:
-            if len(blankingDict[meshKey])>0:
+            if len(blankingDict[meshKey]) > 0:
                 self.pyTree = extractPyTree(clac=clac, fsmesh=fsmesh)
         self.cellNName = 'cellN' # cellN located at the nodes 
 
@@ -186,7 +186,8 @@ def extractPyTree(clac, fsmesh):
     t = C.newPyTree(['Base', z])
     return t
 
-def display(clac, fsmesh, meshKey, variables, it=0, displayDict={}, localDir='./', saveTree=False):
+def display(clac, fsmesh, meshKey, variables, dataset='State', it=0, displayDict={}, localDir='./', saveTree=False):
+    """Display flow solution using Cassiopee"""
     # get display information
     colormap = displayDict.get('colormap', 24) # default: jet
     isoEdges = displayDict.get('isoEdges', 0.) # line width of isolines
@@ -206,7 +207,7 @@ def display(clac, fsmesh, meshKey, variables, it=0, displayDict={}, localDir='./
     convObj.convert2CGNS()
     zone = Internal.getZones(convObj.pyTree)[0]
     Cmpi._setProc(zone, Cmpi.rank)
-    zone[0] = '%d_%d'%(meshKey, Cmpi.rank)
+    zone[0] = '%s_%d'%(meshKey, Cmpi.rank)
 
     listOfMeshKeys = set(Cmpi.allgather(meshKey))
     listOfMeshKeys = sorted(listOfMeshKeys)
@@ -218,10 +219,15 @@ def display(clac, fsmesh, meshKey, variables, it=0, displayDict={}, localDir='./
         ])
     
     t = C.newPyTree(listOfZones)
-    if saveTree: Cmpi.convertPyTree2File(t, localDir+'solution_it%04d.cgns'%it)
+    if saveTree: Cmpi.convertPyTree2File(t, localDir+'solution_iter%04d.cgns'%it)
 
     # force (x,y) plane
     T._rotate(t, (0,0,0), (1,0,0), -90.) # from (x,z) to (x,y)
+
+    # get correct flow container
+    # warning: this change must occur before the temp. patch below
+    #          otherwise T.join would erase the flowSolution containers
+    Internal.__FlowSolutionCenters__ = 'FlowSolution#%s'%dataset
 
     # temporary patch for intra-grid match connection
     t = Cmpi.allgatherTree(t)
@@ -255,6 +261,9 @@ def display(clac, fsmesh, meshKey, variables, it=0, displayDict={}, localDir='./
             fig, ax = Decorator.createSubPlot(box=True, figsize=(7,6), dpi=100, xlim=xlim, ylim=ylim)
             cbar = Decorator.createColorBar(fig, ax, title=v, discrete=True, nticks=5, labelFormat='%.2f', size='3%')
             Decorator.savefig(filename, pad=0.1, dpi=200)
+
+    Cmpi.barrier()
+    Internal.__FlowSolutionCenters__ = 'FlowSolution#Centers'
     
     return None
 
@@ -324,6 +333,7 @@ def generateBCDictFromMesh(fsmesh):
     return bcDict
 
 def getWallBoundaryMarkers(fsmesh):
+    """Get all wall boundary markers from the fsmesh"""
     treatments = getBoundaryTreatmentsFromMesh__(fsmesh)
     wallMarkers = []
     for key, value in treatments.items():
@@ -331,6 +341,7 @@ def getWallBoundaryMarkers(fsmesh):
     return wallMarkers
 
 def getClacInfo(meshDict):
+    """Distribute the meshes across all available processors"""
     globalClac = FSClac()
     globalProcID = globalClac.GetProcID()
     nGlobalProcs = globalClac.GetNProcs()
@@ -396,6 +407,7 @@ def getClacInfo(meshDict):
     return meshKey, meshColor, clac, globalClac, masterClac
 
 def getMeshKeys(meshKey, blankingDict):
+    """Get orig and active mesh keys"""
     meshKeyOrig = 'none'
     meshKeyActive = 'none'
     if meshKey in blankingDict:
@@ -405,25 +417,29 @@ def getMeshKeys(meshKey, blankingDict):
 
     return meshKeyOrig, meshKeyActive
 
-def initGridVelocity(fsmesh):
-    if not fsmesh.HasUnstructDataset('GridVelocity'):
-        nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
-        gridVelNames = FSStringArray(3)
-        gridVelNames[0] = FSDataName.GridVelocity().X()
-        gridVelNames[1] = FSDataName.GridVelocity().Y()
-        gridVelNames[2] = FSDataName.GridVelocity().Z()
-        gridVelSpecs = FSDataSpecArray(3)
-        gridVelSpecs[0].Velocity()
-        gridVelSpecs[1].Velocity()
-        gridVelSpecs[2].Velocity()
-        gridVels = FSFloatArray(nNodes, 3)
-        gridVels.Fill(0.0)
-        fsmesh.InitUnstructDataset('GridVelocity', FSDatasetInfo(gridVelNames, gridVelSpecs, FSMeshEnums.CT_Node), gridVels)
+def initGridVelocity(fsmesh, meshKey, motionDict):
+    """Initialize the GridVelocity dataset"""
+    if meshKey in motionDict:
+        if not fsmesh.HasUnstructDataset('GridVelocity'):
+            nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
+            gridVelNames = FSStringArray(3)
+            gridVelNames[0] = FSDataName.GridVelocity().X()
+            gridVelNames[1] = FSDataName.GridVelocity().Y()
+            gridVelNames[2] = FSDataName.GridVelocity().Z()
+            gridVelSpecs = FSDataSpecArray(3)
+            gridVelSpecs[0].Velocity()
+            gridVelSpecs[1].Velocity()
+            gridVelSpecs[2].Velocity()
+            gridVels = FSFloatArray(nNodes, 3)
+            gridVels.Fill(0.0)
+            fsmesh.InitUnstructDataset('GridVelocity', FSDatasetInfo(gridVelNames, gridVelSpecs, FSMeshEnums.CT_Node), gridVels)
 
     return None
 
-def copyGrid2GridInit(fsmesh=None, mask=None):
-    if fsmesh is not None:
+def copyGrid2GridInit(fsmesh, meshKey, motionDict, blankingMaskDict):
+    """Initialize the UndeformedCoordinates dataset from the original Coordinates dataset"""
+
+    if meshKey in motionDict:
         if not fsmesh.HasUnstructDataset('UndeformedCoordinates'):
             coordsDataset = fsmesh.GetUnstructDataset('Coordinates')
             coords = coordsDataset.GetValues()
@@ -438,33 +454,35 @@ def copyGrid2GridInit(fsmesh=None, mask=None):
             undeformed = coords
             fsmesh.InitUnstructDataset('UndeformedCoordinates', FSDatasetInfo(undeformedNames, undeformedSpecs, FSMeshEnums.CT_Node), undeformed)
     
-    if mask is not None:
-        for meshID in mask:
-            z = mask[meshID]
+    for maskKeyLocal in blankingMaskDict:
+        if maskKeyLocal in motionDict:
+            z = blankingMaskDict[maskKeyLocal]
             R._copyGrid2GridInit(z, mode=1)
 
     return None
 
 def copyGridInit2Grid(fsmesh):
-    refCoords = fsmesh.GetUnstructDataset('UndeformedCoordinates').GetValues()
-    gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues()
-    numpy.copyto(
-            numpy.array(gridCoords.Buffer(), copy=False),
-            numpy.array(refCoords.Buffer(), copy=False),
-            casting='same_kind'
-    )
+    """Copy UndeformedCoordinates to Coordinates"""
+    if fsmesh.HasUnstructDataset('UndeformedCoordinates'):
+        refCoords = fsmesh.GetUnstructDataset('UndeformedCoordinates').GetValues()
+        gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues()
+        numpy.copyto(
+                numpy.array(gridCoords.Buffer(), copy=False),
+                numpy.array(refCoords.Buffer(), copy=False),
+                casting='same_kind'
+        )
 
     return None
 
-def evalPosition(fsmesh=None, mask=None, time=0, motionDict=None):
-    tx, ty, tz = motionDict['transl_speed']
-    cx, cy, cz = motionDict['axis_pnt']
-    kx, ky, kz = motionDict['axis_vct']
-    omega = motionDict['angular_frq']
+def evalPositionFSMesh__(fsmesh, meshKey, time, motionDict):
+    tx, ty, tz = motionDict[meshKey]['transl_speed']
+    cx, cy, cz = motionDict[meshKey]['axis_pnt']
+    kx, ky, kz = motionDict[meshKey]['axis_vct']
+    omega = motionDict[meshKey]['angular_frq']
 
-    if 'ampl_angle' in motionDict: # oscillation
-        alphaMean = motionDict['mean_angle']
-        alphaAmpl = motionDict['ampl_angle']
+    if 'ampl_angle' in motionDict[meshKey]: # oscillation
+        alphaMean = motionDict[meshKey]['mean_angle']
+        alphaAmpl = motionDict[meshKey]['ampl_angle']
         alpha = alphaMean + alphaAmpl * math.sin(omega * time)
     else: # rotation
         alpha = omega * time * __RAD2DEG__
@@ -472,88 +490,116 @@ def evalPosition(fsmesh=None, mask=None, time=0, motionDict=None):
     cosalpha = math.cos(alpha * __DEG2RAD__)
     sinalpha = math.sin(alpha * __DEG2RAD__)
 
-    if mask is not None:
-        for meshID in mask:
-            z = mask[meshID]
-            R._copyGridInit2Grid(z)
-            T._rotate(z, (cx,cy,cz), (kx,ky,kz), alpha, vectors=[])
-            T._translate(z, (tx*time, ty*time, tz*time))
-            
-    if fsmesh is not None:
-        nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
-        copyGridInit2Grid(fsmesh)
-        gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues()
+    nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
+    copyGridInit2Grid(fsmesh)
+    gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues()
 
-        for node in range(nNodes):
-            x = gridCoords[3 * node]
-            y = gridCoords[3 * node + 1]
-            z = gridCoords[3 * node + 2]
+    for node in range(nNodes):
+        x = gridCoords[3 * node]
+        y = gridCoords[3 * node + 1]
+        z = gridCoords[3 * node + 2]
 
-            # position vector
-            cmx = x - cx
-            cmy = y - cy
-            cmz = z - cz
+        # position vector
+        cmx = x - cx
+        cmy = y - cy
+        cmz = z - cz
 
-            # k x CM
-            kcmx = ky * cmz - kz * cmy
-            kcmy = kz * cmx - kx * cmz
-            kcmz = kx * cmy - ky * cmx
+        # k x CM
+        kcmx = ky * cmz - kz * cmy
+        kcmy = kz * cmx - kx * cmz
+        kcmz = kx * cmy - ky * cmx
 
-            # k . CM
-            kcm = kx * cmx + ky * cmy + kz * cmz
+        # k . CM
+        kcm = kx * cmx + ky * cmy + kz * cmz
 
-            # rotation (Rodrigues' rotation formula) + translation
-            x = (cx + cosalpha * cmx + (1 - cosalpha) * kcm * kx + sinalpha * kcmx) + tx
-            y = (cy + cosalpha * cmy + (1 - cosalpha) * kcm * ky + sinalpha * kcmy) + ty
-            z = (cz + cosalpha * cmz + (1 - cosalpha) * kcm * kz + sinalpha * kcmz) + tz
+        # rotation (Rodrigues' rotation formula) + translation
+        x = (cx + cosalpha * cmx + (1 - cosalpha) * kcm * kx + sinalpha * kcmx) + tx
+        y = (cy + cosalpha * cmy + (1 - cosalpha) * kcm * ky + sinalpha * kcmy) + ty
+        z = (cz + cosalpha * cmz + (1 - cosalpha) * kcm * kz + sinalpha * kcmz) + tz
 
-            gridCoords[3 * node] = x
-            gridCoords[3 * node + 1] = y
-            gridCoords[3 * node + 2] = z
+        gridCoords[3 * node] = x
+        gridCoords[3 * node + 1] = y
+        gridCoords[3 * node + 2] = z
 
     return None
 
-def evalGridSpeed(fsmesh=None, time=0, motionDict=None):
-    tx, ty, tz = motionDict['transl_speed']
-    cx, cy, cz = motionDict['axis_pnt']
-    kx, ky, kz = motionDict['axis_vct']
-    omega = motionDict['angular_frq']
+def evalPositionMask__(mask, meshKey, time, motionDict):
+    tx, ty, tz = motionDict[meshKey]['transl_speed']
+    cx, cy, cz = motionDict[meshKey]['axis_pnt']
+    kx, ky, kz = motionDict[meshKey]['axis_vct']
+    omega = motionDict[meshKey]['angular_frq']
 
-    if 'ampl_angle' in motionDict: # oscillation
-        alphaAmpl = motionDict['ampl_angle']
+    if 'ampl_angle' in motionDict[meshKey]: # oscillation
+        alphaMean = motionDict[meshKey]['mean_angle']
+        alphaAmpl = motionDict[meshKey]['ampl_angle']
+        alpha = alphaMean + alphaAmpl * math.sin(omega * time)
+    else: # rotation
+        alpha = omega * time * __RAD2DEG__
+
+    R._copyGridInit2Grid(mask)
+    T._rotate(mask, (cx,cy,cz), (kx,ky,kz), alpha, vectors=[])
+    T._translate(mask, (tx*time, ty*time, tz*time))
+
+    return None
+
+def evalPosition(fsmesh, meshKey, time, motionDict, blankingMaskDict):
+    """Move the fsmesh and all masks based on motionDict and time"""
+    if meshKey in motionDict:
+        evalPositionFSMesh__(fsmesh, meshKey, time, motionDict)
+    
+    for maskKeyLocal in blankingMaskDict:
+        if maskKeyLocal in motionDict:
+            evalPositionMask__(blankingMaskDict[maskKeyLocal], maskKeyLocal, time, motionDict)
+
+    return None
+
+def evalGridSpeedFSMesh__(fsmesh, meshKey, time, motionDict):
+    tx, ty, tz = motionDict[meshKey]['transl_speed']
+    cx, cy, cz = motionDict[meshKey]['axis_pnt']
+    kx, ky, kz = motionDict[meshKey]['axis_vct']
+    omega = motionDict[meshKey]['angular_frq']
+
+    if 'ampl_angle' in motionDict[meshKey]: # oscillation
+        alphaAmpl = motionDict[meshKey]['ampl_angle']
         alphaDot = omega * alphaAmpl * math.cos(omega * time) # derivative of alpha w.r.t to time
         alphaDot *= __DEG2RAD__ # radians per sec.
     else: # rotation
         alphaDot = omega
 
-    if fsmesh is not None:
-        nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
-        gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues() # grid has already been moved
-        gridVels = fsmesh.GetUnstructDataset('GridVelocity').GetValues()
-        
-        for node in range(nNodes):
-            x = gridCoords[3 * node]
-            y = gridCoords[3 * node + 1]
-            z = gridCoords[3 * node + 2]
+    nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
+    gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues() # grid has already been moved
+    gridVels = fsmesh.GetUnstructDataset('GridVelocity').GetValues()
+    
+    for node in range(nNodes):
+        x = gridCoords[3 * node]
+        y = gridCoords[3 * node + 1]
+        z = gridCoords[3 * node + 2]
 
-            # position vector
-            cmx = x - cx
-            cmy = y - cy
-            cmz = z - cz
+        # position vector
+        cmx = x - cx
+        cmy = y - cy
+        cmz = z - cz
 
-            # k x CM
-            kcmx = ky * cmz - kz * cmy
-            kcmy = kz * cmx - kx * cmz
-            kcmz = kx * cmy - ky * cmx
+        # k x CM
+        kcmx = ky * cmz - kz * cmy
+        kcmy = kz * cmx - kx * cmz
+        kcmz = kx * cmy - ky * cmx
 
-            # grid speed
-            vx = tx + alphaDot * kcmx
-            vy = ty + alphaDot * kcmy
-            vz = tz + alphaDot * kcmz
+        # grid speed
+        vx = tx + alphaDot * kcmx
+        vy = ty + alphaDot * kcmy
+        vz = tz + alphaDot * kcmz
 
-            gridVels[3 * node] = vx
-            gridVels[3 * node + 1] = vy
-            gridVels[3 * node + 2] = vz
+        gridVels[3 * node] = vx
+        gridVels[3 * node + 1] = vy
+        gridVels[3 * node + 2] = vz
+    
+    return None
+
+def evalGridSpeed(fsmesh, meshKey, time, motionDict):
+    """Update the fsmesh grid velocities based on motionDict and time"""
+    if meshKey in motionDict:
+        evalGridSpeedFSMesh__(fsmesh, meshKey, time, motionDict)
 
     return None
 
