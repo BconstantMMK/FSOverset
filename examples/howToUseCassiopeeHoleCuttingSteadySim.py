@@ -151,6 +151,7 @@ dataLog = FSDataLog(globalClac)
 ## ====================================
 ## Compute loop
 ## ====================================
+
 # solution process
 status = timeIntegration.Iterate([iterationCallbacks], state, dataLog)
 

@@ -115,6 +115,7 @@ dataLog = FSDataLog(clac)
 ## ====================================
 ## Compute loop
 ## ====================================
+
 # solution process
 status = timeIntegration.Iterate([iterationCallbacks], state, dataLog)
 
