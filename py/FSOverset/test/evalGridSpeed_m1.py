@@ -43,8 +43,7 @@ evalGridSpeed(fsmeshOrig, meshKey, 0.25, motionDict)
 # test
 testDir = Ktest.getDataFolderName()
 testFile = testDir+'/evalGridSpeed_m1_%d.h5'%globalClac.GetProcID()
-if not testFile: fsmeshOrig.ExportMeshHDF5(Filename=testFile) or FSError.PrintAndExit()
-testH5(clac, fsmeshOrig, number=1,
+testH5(clac, fsmeshOrig,
     checkCoordinates=True, coordsName='Coordinates',
     checkConnectivity=True, checkDatasets=True,
     rtol=0., atol=1.e-10,
