@@ -44,7 +44,6 @@ def printDiffRigidMotion(t, fsmesh, motionDict, number):
 
     fs_gridVels = fsmesh.GetUnstructDataset('GridVelocity').GetValues()
     np_gridVels = numpy.array(fs_gridVels.Buffer(), copy=False)
-    np_gridVels = numpy.reshape(np_gridVels, (-1,3))
     VelocityX_fsmesh = np_gridVels[:,0]
     VelocityY_fsmesh = np_gridVels[:,1]
     VelocityZ_fsmesh = np_gridVels[:,2]
