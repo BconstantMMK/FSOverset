@@ -25,7 +25,6 @@ dm = FSDataManager(globalClac)
 fsmeshOrig = dm.GetMesh(meshKey, clac, True)
 meshOps = buildMeshOps(meshFilename, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
-fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
 # Automatically generate blankingMaskDict from offsetDict
 blankingMaskDict = generateBlankingMask(
