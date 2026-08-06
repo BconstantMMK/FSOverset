@@ -45,7 +45,6 @@ def printDiffRigidMotion(t, fsmesh, motionDict, number):
 
     fs_gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues()
     np_gridCoords = numpy.array(fs_gridCoords.Buffer(), copy=False)
-    np_gridCoords = numpy.reshape(np_gridCoords, (-1,3))
     CoordX_fsmesh = np_gridCoords[:,0]
     CoordY_fsmesh = np_gridCoords[:,1]
     CoordZ_fsmesh = np_gridCoords[:,2]

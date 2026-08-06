@@ -491,36 +491,32 @@ def evalPositionFSMesh__(fsmesh, meshKey, time, motionDict):
     cosalpha = math.cos(alpha * __DEG2RAD__)
     sinalpha = math.sin(alpha * __DEG2RAD__)
 
-    nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
     copyGridInit2Grid(fsmesh)
     gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues()
 
-    for node in range(nNodes):
-        x = gridCoords[3 * node]
-        y = gridCoords[3 * node + 1]
-        z = gridCoords[3 * node + 2]
+    np_gridCoords = numpy.array(gridCoords.Buffer(), copy=False)
 
-        # position vector
-        cmx = x - cx
-        cmy = y - cy
-        cmz = z - cz
+    # center vector
+    c = numpy.array([cx, cy, cz])
 
-        # k x CM
-        kcmx = ky * cmz - kz * cmy
-        kcmy = kz * cmx - kx * cmz
-        kcmz = kx * cmy - ky * cmx
+    # rotation axis vector
+    k = numpy.array([kx, ky, kz])
 
-        # k . CM
-        kcm = kx * cmx + ky * cmy + kz * cmz
+    # translation speed vector
+    t = numpy.array([tx, ty, tz])
 
-        # rotation (Rodrigues' rotation formula) + translation
-        x = (cx + cosalpha * cmx + (1 - cosalpha) * kcm * kx + sinalpha * kcmx) + tx*time
-        y = (cy + cosalpha * cmy + (1 - cosalpha) * kcm * ky + sinalpha * kcmy) + ty*time
-        z = (cz + cosalpha * cmz + (1 - cosalpha) * kcm * kz + sinalpha * kcmz) + tz*time
+    # position vector
+    cm = np_gridCoords - c
 
-        gridCoords[3 * node] = x
-        gridCoords[3 * node + 1] = y
-        gridCoords[3 * node + 2] = z
+    # k x CM
+    kcm_cross = numpy.cross(k, cm)
+
+    # k . CM
+    # Element-by-element multiplication (with broadcasting) + sum of the components along axis 1
+    kcm_dot = numpy.sum(k*cm, axis=1, keepdims=True) # keepdims=True to return (nnodes, 1) array
+
+    # rotation (Rodrigues' rotation formula) + translation
+    np_gridCoords[:] = (c + cosalpha*cm + (1 - cosalpha)*kcm_dot*k + sinalpha*kcm_cross) + time*t
 
     return None
 
@@ -568,33 +564,29 @@ def evalGridSpeedFSMesh__(fsmesh, meshKey, time, motionDict):
     else: # rotation
         alphaDot = omega
 
-    nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
     gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues() # grid has already been moved
     gridVels = fsmesh.GetUnstructDataset('GridVelocity').GetValues()
-    
-    for node in range(nNodes):
-        x = gridCoords[3 * node]
-        y = gridCoords[3 * node + 1]
-        z = gridCoords[3 * node + 2]
 
-        # position vector
-        cmx = x - cx
-        cmy = y - cy
-        cmz = z - cz
+    np_gridCoords = numpy.array(gridCoords.Buffer(), copy=False)
+    np_gridVels = numpy.array(gridVels.Buffer(), copy=False)
 
-        # k x CM
-        kcmx = ky * cmz - kz * cmy
-        kcmy = kz * cmx - kx * cmz
-        kcmz = kx * cmy - ky * cmx
+    # center vector
+    c = numpy.array([cx, cy, cz])
 
-        # grid speed
-        vx = tx + alphaDot * kcmx
-        vy = ty + alphaDot * kcmy
-        vz = tz + alphaDot * kcmz
+    # rotation axis vector
+    k = numpy.array([kx, ky, kz])
 
-        gridVels[3 * node] = vx
-        gridVels[3 * node + 1] = vy
-        gridVels[3 * node + 2] = vz
+    # translation speed vector
+    t = numpy.array([tx, ty, tz])
+
+    # position vector
+    cm = np_gridCoords - c
+
+    # k x CM
+    kcm_cross = numpy.cross(k, cm)
+
+    # new grid speed
+    np_gridVels[:] = t + alphaDot*kcm_cross
     
     return None
 
