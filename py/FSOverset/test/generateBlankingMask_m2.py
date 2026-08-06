@@ -7,35 +7,33 @@ import KCore.test as Ktest
 localDirIn = './INPUT/'
 
 meshDict = {
-    0: {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1., 'meshKey':'background'},
-    1: {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1., 'meshKey':'naca'},
-    2: {'meshFilename': localDirIn+'cylinder_small.h5', 'meshProcessorWeight': 1., 'meshKey':'cyl'}
+    'background': {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1.},
+    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.},
+    'cyl': {'meshFilename': localDirIn+'cylinder_small.h5', 'meshProcessorWeight': 1.}
 }
 offsetDict = {
-    1: 0.2,
-    2: 0.05
+    'naca': 0.2,
+    'cyl': 0.05
 }
 
 # Get clacs
-meshID, clac, globalClac, masterClac = getClacInfo(meshDict)
-meshFilename = meshDict[meshID]['meshFilename']
-meshKey = meshDict[meshID]['meshKey']
+meshKey, meshColor, clac, globalClac, masterClac = getClacInfo(meshDict)
+meshFilename = meshDict[meshKey]['meshFilename']
 
 # Get orig mesh
 dm = FSDataManager(globalClac)
 fsmeshOrig = dm.GetMesh(meshKey, clac, True)
 meshOps = buildMeshOps(meshFilename, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
-fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
 # Automatically generate blankingMaskDict from offsetDict
 blankingMaskDict = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
     offsetDict=offsetDict,
-    meshID=meshID,
+    meshKey=meshKey,
     offsetFromBC='BCWall', 
     check=False)
 
 # test
 if globalClac.GetProcID() == 0:
-    for item in blankingMaskDict: Ktest.testT(blankingMaskDict[item],item)
+    for pos, meshKeyLocal in enumerate(blankingMaskDict): Ktest.testT(blankingMaskDict[meshKeyLocal],pos+1)

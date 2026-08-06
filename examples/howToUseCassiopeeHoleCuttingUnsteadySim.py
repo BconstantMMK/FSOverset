@@ -1,4 +1,4 @@
-from FSDataManager import FSError, FSDataLog, FSDataManager
+from FSDataManager import FSClac, FSError, FSDataLog, FSDataManager
 
 from CODA import DiscretizationFactory, TimeIntegrationFactory
 from CODA import StopNumIterations, StopRelativeReduction
@@ -10,57 +10,97 @@ from FSOverset.FSOverset import initGridVelocity, copyGrid2GridInit, evalPositio
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 
 import math
+import sys
+
+motionType = sys.argv[1]
+if motionType not in ['rotation', 'oscillation']:
+    raise ValueError('FSOverset: incorrect motionType (%s). Possible values are "rotation" and "oscillation".'%motionType)
 
 # mesh settings
 localDirIn = 'INPUT/'
-localDirOut = 'OUTPUT/ROTATION/'
+localDirOut = 'OUTPUT/%s/'%motionType.upper()
 
 # flow settings
-Mach, gamma, chord = 0.2, 1.4, 1.0
-k = 0.0814 # reduced frequency
-tx, ty, tz = (0., 0., 0.) # translation vector
-cx, cy, cz = (0.25, 0., 0.) # center of rotation
-kx, ky, kz = (0., 1., 0.) # axis vector
+if motionType == 'oscillation':
+    Mach, gamma, chord = 0.755, 1.4, 1.0
+    k = 0.0814 # reduced frequency
+    tx, ty, tz = (0., 0., 0.) # translation vector
+    cx, cy, cz = (0.25, 0., 0.) # center of rotation
+    kx, ky, kz = (0., 1., 0.) # axis vector
+    alphaMean, alphaAmpl = -0.016, -2.51  # degrees, mean angle and max angle amplitude
+else: # rotation
+    Mach, gamma, chord = 0.2, 1.4, 1.0
+    k = 0.0814 # reduced frequency
+    tx, ty, tz = (0., 0., 0.) # translation vector
+    cx, cy, cz = (0.25, 0., 0.) # center of rotation
+    kx, ky, kz = (0., 1., 0.) # axis vector
 
 Uinf = Mach * math.sqrt(gamma) # freestream speed
 omega = 2 * k * Uinf / chord # angular frequency
 period = 2 * math.pi / omega # oscillatory period
 
 # solver settings
-TSOP = 200 # time steps per period (resp. revolution)
-nperiod = 1 # number of periods (resp. revolutions)
+TSOP = 200 # time steps per period
+nperiod = 1 # number of periods
 targetResidualReduction = 1.0e-8
 maximumNumberOfIterations = 200
 
 time_step = period / TSOP
 niter = nperiod * TSOP
-time = 0
+time = 0. # initalization
 
 meshDict = {
-    0: {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 4., 'meshKey':'background'},
-    1: {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1., 'meshKey':'naca'},
+    'background': {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 2.},
+    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.},
 }
 offsetDict = {
-    1: 0.3
+    'naca': 0.3
 }
 blankingDict = {
-    0: [1]
+    'background': ['naca']
 }
 
-motionDict = {
-    'transl_speed': [tx, ty, tz],
-    'axis_pnt': [cx, cy, cz],
-    'axis_vct': [kx, ky, kz],
-    'angular_frq': omega
-}
+# set up motionDict
+if motionType == 'oscillation':
+    motionDict = {
+        'naca': {
+            'transl_speed': [tx, ty, tz],
+            'axis_pnt': [cx, cy, cz],
+            'axis_vct': [kx, ky, kz],
+            'angular_frq': omega,
+            'mean_angle': alphaMean,
+            'ampl_angle': alphaAmpl
+        }
+    }
+else: # rotation
+    motionDict = {
+        'naca': {
+            'transl_speed': [tx, ty, tz],
+            'axis_pnt': [cx, cy, cz],
+            'axis_vct': [kx, ky, kz],
+            'angular_frq': omega
+        }
+    }
 
-displayDict = {
-    'isoScales': {'State.Density': ['State.Density', 25, 0.92, 1.02]},
-    'xlim': [-1.5, 2.5],
-    'ylim': [-1.0, 1.0],
-    'zplane': 0.0,
-    'mpl': False
-}
+# set up displayDict
+if motionType == 'oscillation':
+    displayDict = {
+        'variables': ['Density'],
+        'isoScales': {'Density': ['Density', 25, 0.75, 1.15]},
+        'xlim': [-1.5, 2.5],
+        'ylim': [-1.0, 1.0],
+        'zplane': 0.0,
+        'mpl': False
+    }
+else: # rotation
+    displayDict = {
+        'variables': ['Density'],
+        'isoScales': {'Density': ['Density', 25, 0.92, 1.02]},
+        'xlim': [-1.5, 2.5],
+        'ylim': [-1.0, 1.0],
+        'zplane': 0.0,
+        'mpl': False
+    }
 
 discSelectionParaDict = {
     "PDE" : "Euler",
@@ -130,9 +170,9 @@ outerTimeIntegrationParaDict = {
 ## ====================================
 
 # Get clacs
-meshID, clac, globalClac, masterClac = getClacInfo(meshDict)
-meshFilename = meshDict[meshID]['meshFilename']
-meshKeyActive, meshKeyOrig = getMeshKeys(meshID, meshDict, blankingDict)
+meshKey, meshColor, clac, globalClac, masterClac = getClacInfo(meshDict)
+meshFilename = meshDict[meshKey]['meshFilename']
+meshKeyActive, meshKeyOrig = getMeshKeys(meshKey, blankingDict)
 
 # Get orig mesh
 dm = FSDataManager(globalClac)
@@ -150,12 +190,12 @@ fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 blankingMaskDict = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
     offsetDict=offsetDict,
-    meshID=meshID,
+    meshKey=meshKey,
     localDir=localDirOut,
     offsetFromBC='BCWall',
     check=False)
 
-blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshID=meshID, blankingDict=blankingDict)
+blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
 # need to run it once to initialize fsmeshActive and create the local numbering
 blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
 extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
@@ -215,12 +255,9 @@ iterationCallbacksOuter = StopNumIterations(1) + monitorIntegralsCallbacks
 
 dataLog = FSDataLog(globalClac)
 
-# fsmesh in relative motion
-if meshID != 0:
-    initGridVelocity(fsmeshOrig)
-    copyGrid2GridInit(fsmeshOrig, blankingMaskDict)
-else:
-    copyGrid2GridInit(None, blankingMaskDict)
+# init. undeformed grid coordinates and grid velocities
+initGridVelocity(fsmeshOrig, meshKey, motionDict)
+copyGrid2GridInit(fsmeshOrig, meshKey, motionDict, blankingMaskDict)
 
 ## ====================================
 ## Compute loop
@@ -230,11 +267,8 @@ for i in range(niter):
     time += time_step
 
     # update grid coordinates and grid velocities
-    if meshID != 0:
-        evalPosition(fsmeshOrig, blankingMaskDict, time, motionDict=motionDict)
-        evalGridSpeed(fsmeshOrig, time, motionDict=motionDict)
-    else:
-        evalPosition(None, blankingMaskDict, time, motionDict=motionDict)
+    evalPosition(fsmeshOrig, meshKey, time, motionDict, blankingMaskDict)
+    evalGridSpeed(fsmeshOrig, meshKey, time, motionDict)
 
     # update blanking    
     blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
@@ -261,12 +295,12 @@ for i in range(niter):
     copySolution(dm, meshKeyOrig, meshKeyActive)
 
     # export image with Cassiopee
-    if False:
-        display(globalClac, fsmeshActive, meshID, ['State.Density'], it=i+1, displayDict=displayDict, localDir=localDirOut, saveTree=True)
+    if displayDict is not None:
+        display(globalClac, fsmeshActive, meshKey, displayDict['variables'], dataset='State', it=i+1, displayDict=displayDict, localDir=localDirOut, saveTree=True)
 
     # export flow solution
-    fsmeshActive.ExportMeshHDF5(HDF5Filename=localDirOut+'fsmeshActive_meshID%d_iter%d.h5'%(meshID, i+1), FilePerProcess=False) or FSError.PrintAndExit()
-    fsmeshOrig.ExportMeshHDF5(HDF5Filename=localDirOut+'fsmeshOrig_meshID%d_iter%d.h5'%(meshID, i+1), FilePerProcess=False) or FSError.PrintAndExit()
+    fsmeshActive.ExportMeshHDF5(HDF5Filename=localDirOut+'solution_%s_active_iter%04d.h5'%(meshKey, i+1), FilePerProcess=False) or FSError.PrintAndExit()
+    fsmeshOrig.ExportMeshHDF5(HDF5Filename=localDirOut+'solution_%s_orig_iter%04d.h5'%(meshKey, i+1), FilePerProcess=False) or FSError.PrintAndExit()
 
 # export data logs
 dataLog.ExportDataXML(localDirOut+'datalog.xml') or FSError.PrintAndExit()

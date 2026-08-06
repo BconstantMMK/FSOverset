@@ -42,15 +42,15 @@ __RAD2DEG__ = 180./math.pi
 
 class FSOverset:
 
-    def __init__(self, clac, fsmesh, meshID, blankingDict={}):
+    def __init__(self, clac, fsmesh, meshKey, blankingDict={}):
         self.clac = clac
         self.fsmesh = fsmesh
-        self.meshID = meshID
+        self.meshKey = meshKey
         self.blankingDict = blankingDict
         self.pyTree = None
 
-        if meshID in blankingDict:
-            if len(blankingDict[meshID])>0:
+        if meshKey in blankingDict:
+            if len(blankingDict[meshKey]) > 0:
                 self.pyTree = extractPyTree(clac=clac, fsmesh=fsmesh)
         self.cellNName = 'cellN' # cellN located at the nodes 
 
@@ -59,18 +59,18 @@ class FSOverset:
             if self.fsmesh.HasCellType(cellType):
                 self.fsVolumeCellTypes.Append(cellType)
 
-    def computeBlanking(self, blankingMaskDict, blankingType='center_in', dim=3):
+    def computeBlanking(self, blankingMaskDict, blankingType='center_in'):
         validBlankingTypes = ['center_in', 'node_in', 'cell_intersect']
         if blankingType not in validBlankingTypes:
             raise ValueError("computeBlanking: invalid blankingType (%s). Possible values are %s"%(blankingType, validBlankingTypes))
         
-        meshIDTarget = self.meshID
+        meshKeyTarget = self.meshKey
         blankingDict = self.blankingDict
         if self.pyTree is not None:
             C._deleteEmptyZones(self.pyTree)
 
-            for maskID in blankingDict[meshIDTarget]:
-                bodiesL = Internal.getZones(blankingMaskDict[maskID])
+            for maskKey in blankingDict[meshKeyTarget]:
+                bodiesL = Internal.getZones(blankingMaskDict[maskKey])
                 self.pyTree = X.blankCellsTri(self.pyTree, [bodiesL], [], blankingType=blankingType, cellNName=self.cellNName) 
 
             # Create an FSDM dataset for cellN obtained in Cassiopee
@@ -101,8 +101,8 @@ class FSOverset:
 # FSOverset Functions
 # ---------------------------------------------------------------------------- #
 
-#offsetDict : mandatory (can be zero) to specify if a BC defines a blanking mask or not.
-def generateBlankingMask(clac, fsmesh, meshID, offsetDict, offsetFromBC='BCOverset', dim=3, localDir='./', check=False):
+# offsetDict : mandatory (can be zero) to specify if a BC defines a blanking mask or not.
+def generateBlankingMask(clac, fsmesh, meshKey, offsetDict, offsetFromBC='BCOverset', dim=3, localDir='./', check=False):
     """Generate a blanking mask from a specified BC"""
     validBCNames = ['BCOverset', 'BCWall']
     if offsetFromBC not in validBCNames:
@@ -111,7 +111,7 @@ def generateBlankingMask(clac, fsmesh, meshID, offsetDict, offsetFromBC='BCOvers
     tb = None
 
     # Conversion of the curvilinear mesh of the body ('standard' conversion)
-    if meshID in offsetDict:
+    if meshKey in offsetDict:
         bcDict = generateBCDictFromMesh(fsmesh)
         if any(bcDict[bc].startswith(offsetFromBC) for bc in bcDict):
             if fsmesh.HasUnstructDataset('UndeformedCoordinates'): coordsName = 'UndeformedCoordinates'
@@ -137,40 +137,42 @@ def generateBlankingMask(clac, fsmesh, meshID, offsetDict, offsetFromBC='BCOvers
                 tb = T.join(tb)
                 Cmpi._setProc(tb, Cmpi.rank)
                 param = Internal.getNodeFromName1(tb, '.Solver#Param')
-                Internal.newDataArray('meshID', parent=param, value=meshID)
+                Internal.newDataArray('meshKey', parent=param, value=meshKey)
 
-    # Create bodies per meshID
+    # Create bodies per meshKey
     tb = Cmpi.allgatherZones(tb)
     if Cmpi.master and check: C.convertPyTree2File(tb, localDir+'wall.plt')
     bodies = {}
     for zone in Internal.getZones(tb):
-        meshID_l = Internal.getNodeFromName(zone,'meshID')[1][0]
-        if meshID_l not in bodies.keys():
-            bodies[meshID_l] = zone
+        meshKeyNode = Internal.getNodeFromName(zone, 'meshKey')
+        meshKeyLocal = Internal.getValue(meshKeyNode)
+        if meshKeyLocal not in bodies.keys():
+            bodies[meshKeyLocal] = zone
         else:
-           bodies[meshID_l] = T.join(bodies[meshID_l],zone)
-           bodies[meshID_l] = G.close(bodies[meshID_l])
+           bodies[meshKeyLocal] = T.join(bodies[meshKeyLocal], zone)
+           bodies[meshKeyLocal] = G.close(bodies[meshKeyLocal])
 
-    # Create offset bodies per meshID
+    # Create offset bodies per meshKey
     blankingMaskDict = bodies.copy()
 
     sign_offset = 1. if offsetFromBC == 'BCWall' else -1.
-    for meshID_l in blankingMaskDict:
-        offsetdist = offsetDict[meshID_l]
+    for meshKeyLocal in blankingMaskDict:
+        offsetdist = offsetDict[meshKeyLocal]
         if offsetdist > 0.:
-            BB = G.bbox(blankingMaskDict[meshID_l])
+            BB = G.bbox(blankingMaskDict[meshKeyLocal])
             xmin = BB[0]; ymin = BB[1]; zmin = BB[2]
             xmax = BB[3]; ymax = BB[4]; zmax = BB[5]
             dmax = max((xmax-xmin), (ymax-ymin), (zmax-zmin))
             ppul = 50./dmax
-            if Cmpi.master: print('generateBlankingMask: generating offset (meshID=%d) with ppul=%f and dmax=%f'%(meshID_l, ppul, dmax))
-            blankingMaskDict[meshID_l] = D.offsetSurface(blankingMaskDict[meshID_l], offset=sign_offset*offsetDict[meshID_l], pointsPerUnitLength=ppul, algo=0, dim=dim)[0]
-            if Cmpi.master and check: C.convertPyTree2File(blankingMaskDict[meshID_l], localDir+'wall_offset_%s.plt' %meshID_l)
-            blankingMaskDict[meshID_l] = C.convertArray2Tetra(blankingMaskDict[meshID_l])
-        else: 
-            blankingMaskDict[meshID_l] = C.convertArray2Tetra(bodies[meshID_l])
+            if Cmpi.master: print('generateBlankingMask: generating offset (meshKey=%s) with ppul=%f and dmax=%f'%(meshKeyLocal, ppul, dmax))
+            blankingMaskDict[meshKeyLocal] = D.offsetSurface(blankingMaskDict[meshKeyLocal], offset=sign_offset*offsetDict[meshKeyLocal], pointsPerUnitLength=ppul, algo=0, dim=dim)[0]
+            if Cmpi.master and check: C.convertPyTree2File(blankingMaskDict[meshKeyLocal], localDir+'offset_%s_%s.plt'%(offsetFromBC, meshKeyLocal))
+            blankingMaskDict[meshKeyLocal] = C.convertArray2Tetra(blankingMaskDict[meshKeyLocal])
+        else:
+            Internal._rmNodesByName1(bodies[meshKeyLocal], '.Solver#Param')
+            blankingMaskDict[meshKeyLocal] = C.convertArray2Tetra(bodies[meshKeyLocal])
 
-        blankingMaskDict[meshID_l] = G.close(blankingMaskDict[meshID_l])
+        blankingMaskDict[meshKeyLocal] = G.close(blankingMaskDict[meshKeyLocal])
 
     return blankingMaskDict
 
@@ -184,7 +186,8 @@ def extractPyTree(clac, fsmesh):
     t = C.newPyTree(['Base', z])
     return t
 
-def display(clac, fsmesh, meshID, variables, it=0, displayDict={}, localDir='./', saveTree=False):
+def display(clac, fsmesh, meshKey, variables, dataset='State', it=0, displayDict={}, localDir='./', saveTree=False):
+    """Display flow solution using Cassiopee"""
     # get display information
     colormap = displayDict.get('colormap', 24) # default: jet
     isoEdges = displayDict.get('isoEdges', 0.) # line width of isolines
@@ -204,22 +207,27 @@ def display(clac, fsmesh, meshID, variables, it=0, displayDict={}, localDir='./'
     convObj.convert2CGNS()
     zone = Internal.getZones(convObj.pyTree)[0]
     Cmpi._setProc(zone, Cmpi.rank)
-    zone[0] = '%d_%d'%(meshID, Cmpi.rank)
+    zone[0] = '%s_%d'%(meshKey, Cmpi.rank)
 
-    listOfMeshID = set(Cmpi.allgather(meshID))
-    listOfMeshID = sorted(listOfMeshID)
+    listOfMeshKeys = set(Cmpi.allgather(meshKey))
+    listOfMeshKeys = sorted(listOfMeshKeys)
     listOfZones = []
-    for i in listOfMeshID:
+    for meshKeyLocal in listOfMeshKeys:
         listOfZones.extend([
-            'MeshID%d'%i,
-            zone if meshID == i else []
+            meshKeyLocal,
+            zone if meshKey == meshKeyLocal else []
         ])
     
     t = C.newPyTree(listOfZones)
-    if saveTree: Cmpi.convertPyTree2File(t, localDir+'solution_it%04d.cgns'%it)
+    if saveTree: Cmpi.convertPyTree2File(t, localDir+'solution_iter%04d.cgns'%it)
 
     # force (x,y) plane
     T._rotate(t, (0,0,0), (1,0,0), -90.) # from (x,z) to (x,y)
+
+    # get correct flow container
+    # warning: this change must occur before the temp. patch below
+    #          otherwise T.join would erase the flowSolution containers
+    Internal.__FlowSolutionCenters__ = 'FlowSolution#%s'%dataset
 
     # temporary patch for intra-grid match connection
     t = Cmpi.allgatherTree(t)
@@ -253,6 +261,9 @@ def display(clac, fsmesh, meshID, variables, it=0, displayDict={}, localDir='./'
             fig, ax = Decorator.createSubPlot(box=True, figsize=(7,6), dpi=100, xlim=xlim, ylim=ylim)
             cbar = Decorator.createColorBar(fig, ax, title=v, discrete=True, nticks=5, labelFormat='%.2f', size='3%')
             Decorator.savefig(filename, pad=0.1, dpi=200)
+
+    Cmpi.barrier()
+    Internal.__FlowSolutionCenters__ = 'FlowSolution#Centers'
     
     return None
 
@@ -322,6 +333,7 @@ def generateBCDictFromMesh(fsmesh):
     return bcDict
 
 def getWallBoundaryMarkers(fsmesh):
+    """Get all wall boundary markers from the fsmesh"""
     treatments = getBoundaryTreatmentsFromMesh__(fsmesh)
     wallMarkers = []
     for key, value in treatments.items():
@@ -329,6 +341,7 @@ def getWallBoundaryMarkers(fsmesh):
     return wallMarkers
 
 def getClacInfo(meshDict):
+    """Distribute the meshes across all available processors"""
     globalClac = FSClac()
     globalProcID = globalClac.GetProcID()
     nGlobalProcs = globalClac.GetNProcs()
@@ -339,88 +352,94 @@ def getClacInfo(meshDict):
     if nGlobalProcs < nMeshes:
         raise ValueError('FSOverset: the number of MPI processes must be greater or equal to the number of meshes (nMeshes = %d)'%nMeshes)
 
-    # compute total mesh weight and sort meshIDs per weight
-    for meshIDLocal in meshDict: 
-        if 'meshProcessorWeight' not in meshDict[meshIDLocal]: 
-            meshDict[meshIDLocal]['meshProcessorWeight'] = 1.0 # default value
-    weightTotal = sum(meshDict[meshID]['meshProcessorWeight'] for meshID in meshDict)
-    sortedMeshIDs = sorted(meshDict.keys(), key=lambda x: meshDict[x]['meshProcessorWeight'], reverse=True)
+    # compute total mesh weight and sort meshKeys per weight
+    for meshKeyLocal in meshDict: 
+        if 'meshProcessorWeight' not in meshDict[meshKeyLocal]: 
+            meshDict[meshKeyLocal]['meshProcessorWeight'] = 1.0 # default value
+    weightTotal = sum(meshDict[meshKeyLocal]['meshProcessorWeight'] for meshKeyLocal in meshDict)
+    sortedMeshKeys = sorted(meshDict.keys(), key=lambda x: meshDict[x]['meshProcessorWeight'], reverse=True)
 
     # initialize balancingDict
-    balancingDict = {key: 0 for key in meshDict}
-    for meshIDLocal in meshDict:
-        nProcs = math.floor(nGlobalProcs*meshDict[meshIDLocal]['meshProcessorWeight']/weightTotal)
-        balancingDict[meshIDLocal] = max(1, nProcs) # at least one proc per mesh
+    balancingDict = {meshKeyLocal: 0 for meshKeyLocal in meshDict}
+    for meshKeyLocal in meshDict:
+        nProcs = math.floor(nGlobalProcs*meshDict[meshKeyLocal]['meshProcessorWeight']/weightTotal)
+        balancingDict[meshKeyLocal] = max(1, nProcs) # at least one proc per mesh
 
     # correct balancingDict based on nGlobalProcs
     diffBalancing = nGlobalProcs - sum(balancingDict.values())
-    # too many procs: remove values from lightest to heaviest meshID
+    # too many procs: remove values from lightest to heaviest meshKey
     if diffBalancing < 0:
         pos = -1
         while diffBalancing < 0:
-            meshIDLocal = sortedMeshIDs[pos]
-            if balancingDict[meshIDLocal] > 1:
-                balancingDict[meshIDLocal] -= 1
+            meshKeyLocal = sortedMeshKeys[pos]
+            if balancingDict[meshKeyLocal] > 1:
+                balancingDict[meshKeyLocal] -= 1
                 diffBalancing += 1
             pos -= 1
-    # too few procs: add values from heaviest to lightest meshID
+    # too few procs: add values from heaviest to lightest meshKey
     elif diffBalancing > 0:
         pos = 0
         while diffBalancing > 0:
-            meshIDLocal = sortedMeshIDs[pos]
-            balancingDict[meshIDLocal] += 1
+            meshKeyLocal = sortedMeshKeys[pos]
+            balancingDict[meshKeyLocal] += 1
             diffBalancing -= 1
             pos += 1
 
-    # get final meshID per proc
+    # get final meshKey per proc
     threshold = 0
-    meshID = None
-    for meshIDLocal in sortedMeshIDs:
-        threshold += balancingDict[meshIDLocal]
+    meshKey = None
+    for meshKeyLocal in sortedMeshKeys:
+        threshold += balancingDict[meshKeyLocal]
         if globalProcID < threshold: 
-            meshID = meshIDLocal
+            meshKey = meshKeyLocal
             break
     
     # get local and master clacs
     clac = FSClac()
-    globalClac.DivideIntoGroups(meshID, clac)
+    colors = {meshKeyLocal: pos for pos, meshKeyLocal in enumerate(sortedMeshKeys)}
+    meshColor = colors[meshKey] # meshColor must be an integer
+    globalClac.DivideIntoGroups(meshColor, clac)
 
     master = clac.GetProcID() == 0
     masterClac = FSClac()
     globalClac.DivideIntoGroups(master, masterClac)
 
-    return meshID, clac, globalClac, masterClac
+    return meshKey, meshColor, clac, globalClac, masterClac
 
-def getMeshKeys(meshID, meshDict, blankingDict):
-    meshKey = meshDict[meshID]['meshKey']
+def getMeshKeys(meshKey, blankingDict):
+    """Get orig and active mesh keys"""
     meshKeyOrig = 'none'
     meshKeyActive = 'none'
-    if meshID in blankingDict:
-        if blankingDict[meshID]: # not None or []
+    if meshKey in blankingDict:
+        if blankingDict[meshKey]: # not None or []
             meshKeyOrig = meshKey + '_orig'
             meshKeyActive = meshKey + '_active'
 
     return meshKeyOrig, meshKeyActive
 
-def initGridVelocity(fsmesh):
-    if not fsmesh.HasUnstructDataset('GridVelocity'):
-        nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
-        gridVelNames = FSStringArray(3)
-        gridVelNames[0] = FSDataName.GridVelocity().X()
-        gridVelNames[1] = FSDataName.GridVelocity().Y()
-        gridVelNames[2] = FSDataName.GridVelocity().Z()
-        gridVelSpecs = FSDataSpecArray(3)
-        gridVelSpecs[0].Velocity()
-        gridVelSpecs[1].Velocity()
-        gridVelSpecs[2].Velocity()
-        gridVels = FSFloatArray(nNodes, 3)
-        gridVels.Fill(0.0)
-        fsmesh.InitUnstructDataset('GridVelocity', FSDatasetInfo(gridVelNames, gridVelSpecs, FSMeshEnums.CT_Node), gridVels)
+def initGridVelocity(fsmesh, meshKey, motionDict):
+    """Initialize the GridVelocity dataset"""
+    if meshKey in motionDict:
+        if not fsmesh.HasUnstructDataset('GridVelocity'):
+            nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
+            gridVelNames = FSStringArray(3)
+            gridVelNames[0] = FSDataName.GridVelocity().X()
+            gridVelNames[1] = FSDataName.GridVelocity().Y()
+            gridVelNames[2] = FSDataName.GridVelocity().Z()
+            gridVelSpecs = FSDataSpecArray(3)
+            gridVelSpecs[0].Velocity()
+            gridVelSpecs[1].Velocity()
+            gridVelSpecs[2].Velocity()
+            gridVels = FSFloatArray(nNodes, 3)
+            gridVels.Fill(0.0)
+            fsmesh.InitUnstructDataset('GridVelocity', FSDatasetInfo(gridVelNames, gridVelSpecs, FSMeshEnums.CT_Node), gridVels)
 
     return None
 
-def copyGrid2GridInit(fsmesh=None, mask=None):
-    if fsmesh is not None:
+def copyGrid2GridInit(fsmesh, meshKey, motionDict, blankingMaskDict=None):
+    """Initialize the UndeformedCoordinates dataset from the original Coordinates dataset"""
+
+    if meshKey in motionDict:
         if not fsmesh.HasUnstructDataset('UndeformedCoordinates'):
             coordsDataset = fsmesh.GetUnstructDataset('Coordinates')
             coords = coordsDataset.GetValues()
@@ -435,33 +454,36 @@ def copyGrid2GridInit(fsmesh=None, mask=None):
             undeformed = coords
             fsmesh.InitUnstructDataset('UndeformedCoordinates', FSDatasetInfo(undeformedNames, undeformedSpecs, FSMeshEnums.CT_Node), undeformed)
     
-    if mask is not None:
-        for meshID in mask:
-            z = mask[meshID]
-            R._copyGrid2GridInit(z, mode=1)
+    if blankingMaskDict is not None:
+        for maskKeyLocal in blankingMaskDict:
+            if maskKeyLocal in motionDict:
+                z = blankingMaskDict[maskKeyLocal]
+                R._copyGrid2GridInit(z, mode=1)
 
     return None
 
 def copyGridInit2Grid(fsmesh):
-    refCoords = fsmesh.GetUnstructDataset('UndeformedCoordinates').GetValues()
-    gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues()
-    numpy.copyto(
-            numpy.array(gridCoords.Buffer(), copy=False),
-            numpy.array(refCoords.Buffer(), copy=False),
-            casting='same_kind'
-    )
+    """Copy UndeformedCoordinates to Coordinates"""
+    if fsmesh.HasUnstructDataset('UndeformedCoordinates'):
+        refCoords = fsmesh.GetUnstructDataset('UndeformedCoordinates').GetValues()
+        gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues()
+        numpy.copyto(
+                numpy.array(gridCoords.Buffer(), copy=False),
+                numpy.array(refCoords.Buffer(), copy=False),
+                casting='same_kind'
+        )
 
     return None
 
-def evalPosition(fsmesh=None, mask=None, time=0, motionDict=None):
-    tx, ty, tz = motionDict['transl_speed']
-    cx, cy, cz = motionDict['axis_pnt']
-    kx, ky, kz = motionDict['axis_vct']
-    omega = motionDict['angular_frq']
+def evalPositionFSMesh__(fsmesh, meshKey, time, motionDict):
+    tx, ty, tz = motionDict[meshKey]['transl_speed']
+    cx, cy, cz = motionDict[meshKey]['axis_pnt']
+    kx, ky, kz = motionDict[meshKey]['axis_vct']
+    omega = motionDict[meshKey]['angular_frq']
 
-    if 'ampl_angle' in motionDict: # oscillation
-        alphaMean = motionDict['mean_angle']
-        alphaAmpl = motionDict['ampl_angle']
+    if 'ampl_angle' in motionDict[meshKey]: # oscillation
+        alphaMean = motionDict[meshKey]['mean_angle']
+        alphaAmpl = motionDict[meshKey]['ampl_angle']
         alpha = alphaMean + alphaAmpl * math.sin(omega * time)
     else: # rotation
         alpha = omega * time * __RAD2DEG__
@@ -469,160 +491,116 @@ def evalPosition(fsmesh=None, mask=None, time=0, motionDict=None):
     cosalpha = math.cos(alpha * __DEG2RAD__)
     sinalpha = math.sin(alpha * __DEG2RAD__)
 
-    if mask is not None:
-        for meshID in mask:
-            z = mask[meshID]
-            R._copyGridInit2Grid(z)
-            T._rotate(z, (cx,cy,cz), (kx,ky,kz), alpha, vectors=[])
-            T._translate(z, (tx*time, ty*time, tz*time))
-            
-    if fsmesh is not None:
-        nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
-        copyGridInit2Grid(fsmesh)
-        gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues()
+    nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
+    copyGridInit2Grid(fsmesh)
+    gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues()
 
-        for node in range(nNodes):
-            x = gridCoords[3 * node]
-            y = gridCoords[3 * node + 1]
-            z = gridCoords[3 * node + 2]
+    for node in range(nNodes):
+        x = gridCoords[3 * node]
+        y = gridCoords[3 * node + 1]
+        z = gridCoords[3 * node + 2]
 
-            # position vector
-            cmx = x - cx
-            cmy = y - cy
-            cmz = z - cz
+        # position vector
+        cmx = x - cx
+        cmy = y - cy
+        cmz = z - cz
 
-            # k x CM
-            kcmx = ky * cmz - kz * cmy
-            kcmy = kz * cmx - kx * cmz
-            kcmz = kx * cmy - ky * cmx
+        # k x CM
+        kcmx = ky * cmz - kz * cmy
+        kcmy = kz * cmx - kx * cmz
+        kcmz = kx * cmy - ky * cmx
 
-            # k . CM
-            kcm = kx * cmx + ky * cmy + kz * cmz
+        # k . CM
+        kcm = kx * cmx + ky * cmy + kz * cmz
 
-            # rotation (Rodrigues' rotation formula) + translation
-            x = (cx + cosalpha * cmx + (1 - cosalpha) * kcm * kx + sinalpha * kcmx) + tx
-            y = (cy + cosalpha * cmy + (1 - cosalpha) * kcm * ky + sinalpha * kcmy) + ty
-            z = (cz + cosalpha * cmz + (1 - cosalpha) * kcm * kz + sinalpha * kcmz) + tz
+        # rotation (Rodrigues' rotation formula) + translation
+        x = (cx + cosalpha * cmx + (1 - cosalpha) * kcm * kx + sinalpha * kcmx) + tx*time
+        y = (cy + cosalpha * cmy + (1 - cosalpha) * kcm * ky + sinalpha * kcmy) + ty*time
+        z = (cz + cosalpha * cmz + (1 - cosalpha) * kcm * kz + sinalpha * kcmz) + tz*time
 
-            gridCoords[3 * node] = x
-            gridCoords[3 * node + 1] = y
-            gridCoords[3 * node + 2] = z
+        gridCoords[3 * node] = x
+        gridCoords[3 * node + 1] = y
+        gridCoords[3 * node + 2] = z
 
     return None
 
-def evalGridSpeed(fsmesh=None, time=0, motionDict=None):
-    tx, ty, tz = motionDict['transl_speed']
-    cx, cy, cz = motionDict['axis_pnt']
-    kx, ky, kz = motionDict['axis_vct']
-    omega = motionDict['angular_frq']
+def evalPositionMask__(mask, meshKey, time, motionDict):
+    tx, ty, tz = motionDict[meshKey]['transl_speed']
+    cx, cy, cz = motionDict[meshKey]['axis_pnt']
+    kx, ky, kz = motionDict[meshKey]['axis_vct']
+    omega = motionDict[meshKey]['angular_frq']
 
-    if 'ampl_angle' in motionDict: # oscillation
-        alphaAmpl = motionDict['ampl_angle']
+    if 'ampl_angle' in motionDict[meshKey]: # oscillation
+        alphaMean = motionDict[meshKey]['mean_angle']
+        alphaAmpl = motionDict[meshKey]['ampl_angle']
+        alpha = alphaMean + alphaAmpl * math.sin(omega * time)
+    else: # rotation
+        alpha = omega * time * __RAD2DEG__
+
+    R._copyGridInit2Grid(mask)
+    T._rotate(mask, (cx,cy,cz), (kx,ky,kz), alpha, vectors=[])
+    T._translate(mask, (tx*time, ty*time, tz*time))
+
+    return None
+
+def evalPosition(fsmesh, meshKey, time, motionDict, blankingMaskDict=None):
+    """Move the fsmesh and all masks based on motionDict and time"""
+    if meshKey in motionDict:
+        evalPositionFSMesh__(fsmesh, meshKey, time, motionDict)
+    
+    if blankingMaskDict is not None:
+        for maskKeyLocal in blankingMaskDict:
+            if maskKeyLocal in motionDict:
+                evalPositionMask__(blankingMaskDict[maskKeyLocal], maskKeyLocal, time, motionDict)
+
+    return None
+
+def evalGridSpeedFSMesh__(fsmesh, meshKey, time, motionDict):
+    tx, ty, tz = motionDict[meshKey]['transl_speed']
+    cx, cy, cz = motionDict[meshKey]['axis_pnt']
+    kx, ky, kz = motionDict[meshKey]['axis_vct']
+    omega = motionDict[meshKey]['angular_frq']
+
+    if 'ampl_angle' in motionDict[meshKey]: # oscillation
+        alphaAmpl = motionDict[meshKey]['ampl_angle']
         alphaDot = omega * alphaAmpl * math.cos(omega * time) # derivative of alpha w.r.t to time
         alphaDot *= __DEG2RAD__ # radians per sec.
     else: # rotation
         alphaDot = omega
 
-    if fsmesh is not None:
-        nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
-        gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues() # grid has already been moved
-        gridVels = fsmesh.GetUnstructDataset('GridVelocity').GetValues()
-        
-        for node in range(nNodes):
-            x = gridCoords[3 * node]
-            y = gridCoords[3 * node + 1]
-            z = gridCoords[3 * node + 2]
+    nNodes = fsmesh.GetNCells(FSMeshEnums.CT_Node)
+    gridCoords = fsmesh.GetUnstructDataset('Coordinates').GetValues() # grid has already been moved
+    gridVels = fsmesh.GetUnstructDataset('GridVelocity').GetValues()
+    
+    for node in range(nNodes):
+        x = gridCoords[3 * node]
+        y = gridCoords[3 * node + 1]
+        z = gridCoords[3 * node + 2]
 
-            # position vector
-            cmx = x - cx
-            cmy = y - cy
-            cmz = z - cz
+        # position vector
+        cmx = x - cx
+        cmy = y - cy
+        cmz = z - cz
 
-            # k x CM
-            kcmx = ky * cmz - kz * cmy
-            kcmy = kz * cmx - kx * cmz
-            kcmz = kx * cmy - ky * cmx
+        # k x CM
+        kcmx = ky * cmz - kz * cmy
+        kcmy = kz * cmx - kx * cmz
+        kcmz = kx * cmy - ky * cmx
 
-            # grid speed
-            vx = tx + alphaDot * kcmx
-            vy = ty + alphaDot * kcmy
-            vz = tz + alphaDot * kcmz
+        # grid speed
+        vx = tx + alphaDot * kcmx
+        vy = ty + alphaDot * kcmy
+        vz = tz + alphaDot * kcmz
 
-            gridVels[3 * node] = vx
-            gridVels[3 * node + 1] = vy
-            gridVels[3 * node + 2] = vz
-
+        gridVels[3 * node] = vx
+        gridVels[3 * node + 1] = vy
+        gridVels[3 * node + 2] = vz
+    
     return None
 
-# ---------------------------------------------------------------------------- #
-# Deprecated Functions
-# ---------------------------------------------------------------------------- #
+def evalGridSpeed(fsmesh, meshKey, time, motionDict):
+    """Update the fsmesh grid velocities based on motionDict and time"""
+    if meshKey in motionDict:
+        evalGridSpeedFSMesh__(fsmesh, meshKey, time, motionDict)
 
-def surfaceBackgroundMesh(clac, fsmesh, paraDict, wallBoundaryMarkers, offsets, meshID):
-    Cmpi.barrier()
-    tb2 = None
-    # Conversion of the curvilinear mesh of the body ("standard" conversion)
-    if meshID == 0:
-        tmp_bcDict = {}
-        for dictio in paraDict["boundary treatments"]:
-            if dictio["treatment type"] in tmp_bcDict:
-                for value in dictio["boundary markers"]:
-                    tmp_bcDict[dictio["treatment type"]].append(value)
-            else:
-                tmp_bcDict[dictio["treatment type"]] = dictio["boundary markers"]
-        bcDict = {}
-        for bcname, markers in tmp_bcDict.items():
-            for marker in markers:
-                bcDict[marker] = bcname
-
-        convObj = FSCGNSConverter(clac=clac, fsmesh=fsmesh, bcDict=bcDict)
-        convObj.convert2CGNS()
-        z_body = Internal.getZones(convObj.pyTree)[0]
-        z_body[0] += "."+str(Cmpi.rank)
-
-        # Extract only the wall for the blanking (surface mesh)
-        if Cmpi.master: print(Cmpi.rank, "zonevalue", Internal.getValue(z_body))
-        ER = Internal.getNodeFromName(z_body, "ElementRange")[1]
-
-        if (ER[1] - ER[0] + 1) > 0:
-            extFaces = z_body
-            Internal._rmNodesFromType(extFaces,"ZoneBC_t")
-            elts_extFaces = Internal.getNodesFromType(extFaces,"Elements_t")
-            for elt in elts_extFaces:
-                if elt[0].startswith("GridElements"):
-                    Internal._rmNode(extFaces,elt)
-            zones = []
-            elts_extFaces = Internal.getNodesFromType(extFaces,"Elements_t")
-
-            zones = []
-            for elt_eF in elts_extFaces:
-                extFaces_select = C.selectConnectivity(extFaces,elt_eF[0])
-                extFaces_select = C.convertArray2Tetra(extFaces_select)
-                zones.append(extFaces_select)
-
-            tb2 = T.join(zones)
-
-    tb2 = Cmpi.allgatherZones(tb2)
-    bodies = {}
-    for zone in Internal.getZones(tb2):
-        #meshid = Internal.getNodeFromName(zone,"meshID")[1][0]
-        meshid = meshID
-        if meshid not in bodies:
-            bodies[meshid] = zone
-        else:
-            bodies[meshid] = T.join(bodies[meshid],zone)
-            bodies[meshid] = G.close(bodies[meshid])
-    bodies_offset = bodies.copy()
-    for meshid in bodies_offset:
-        BB = G.bbox(bodies_offset[meshid])
-        xmin, ymin, zmin = BB[:3]
-        xmax, ymax, zmax = BB[3:]
-        dmax = max((xmax-xmin), (ymax-ymin), (zmax-zmin))
-        ppul = 100./dmax
-        if Cmpi.master: print("Points per unit lenght=", ppul)
-        bodies_offset[meshid] = D.offsetSurface(bodies_offset[meshid], offset=-offsets[meshid-1], pointsPerUnitLength=ppul, algo=0, dim=3)[0]
-        C.convertPyTree2File(bodies_offset[meshid], "wall_OVERSET_%s.plt" %meshid)
-        bodies_offset[meshid] = C.convertArray2Tetra(bodies_offset[meshid])
-        bodies_offset[meshid] = G.close(bodies_offset[meshid])
-    #offset_tb2 = C.newPyTree(["bodies",list(bodies.values())])
-    return bodies, bodies_offset
+    return None
