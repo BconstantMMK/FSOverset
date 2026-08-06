@@ -436,7 +436,7 @@ def initGridVelocity(fsmesh, meshKey, motionDict):
 
     return None
 
-def copyGrid2GridInit(fsmesh, meshKey, motionDict, blankingMaskDict):
+def copyGrid2GridInit(fsmesh, meshKey, motionDict, blankingMaskDict=None):
     """Initialize the UndeformedCoordinates dataset from the original Coordinates dataset"""
 
     if meshKey in motionDict:
@@ -454,10 +454,11 @@ def copyGrid2GridInit(fsmesh, meshKey, motionDict, blankingMaskDict):
             undeformed = coords
             fsmesh.InitUnstructDataset('UndeformedCoordinates', FSDatasetInfo(undeformedNames, undeformedSpecs, FSMeshEnums.CT_Node), undeformed)
     
-    for maskKeyLocal in blankingMaskDict:
-        if maskKeyLocal in motionDict:
-            z = blankingMaskDict[maskKeyLocal]
-            R._copyGrid2GridInit(z, mode=1)
+    if blankingMaskDict is not None:
+        for maskKeyLocal in blankingMaskDict:
+            if maskKeyLocal in motionDict:
+                z = blankingMaskDict[maskKeyLocal]
+                R._copyGrid2GridInit(z, mode=1)
 
     return None
 
@@ -513,9 +514,9 @@ def evalPositionFSMesh__(fsmesh, meshKey, time, motionDict):
         kcm = kx * cmx + ky * cmy + kz * cmz
 
         # rotation (Rodrigues' rotation formula) + translation
-        x = (cx + cosalpha * cmx + (1 - cosalpha) * kcm * kx + sinalpha * kcmx) + tx
-        y = (cy + cosalpha * cmy + (1 - cosalpha) * kcm * ky + sinalpha * kcmy) + ty
-        z = (cz + cosalpha * cmz + (1 - cosalpha) * kcm * kz + sinalpha * kcmz) + tz
+        x = (cx + cosalpha * cmx + (1 - cosalpha) * kcm * kx + sinalpha * kcmx) + tx*time
+        y = (cy + cosalpha * cmy + (1 - cosalpha) * kcm * ky + sinalpha * kcmy) + ty*time
+        z = (cz + cosalpha * cmz + (1 - cosalpha) * kcm * kz + sinalpha * kcmz) + tz*time
 
         gridCoords[3 * node] = x
         gridCoords[3 * node + 1] = y
@@ -542,14 +543,15 @@ def evalPositionMask__(mask, meshKey, time, motionDict):
 
     return None
 
-def evalPosition(fsmesh, meshKey, time, motionDict, blankingMaskDict):
+def evalPosition(fsmesh, meshKey, time, motionDict, blankingMaskDict=None):
     """Move the fsmesh and all masks based on motionDict and time"""
     if meshKey in motionDict:
         evalPositionFSMesh__(fsmesh, meshKey, time, motionDict)
     
-    for maskKeyLocal in blankingMaskDict:
-        if maskKeyLocal in motionDict:
-            evalPositionMask__(blankingMaskDict[maskKeyLocal], maskKeyLocal, time, motionDict)
+    if blankingMaskDict is not None:
+        for maskKeyLocal in blankingMaskDict:
+            if maskKeyLocal in motionDict:
+                evalPositionMask__(blankingMaskDict[maskKeyLocal], maskKeyLocal, time, motionDict)
 
     return None
 
