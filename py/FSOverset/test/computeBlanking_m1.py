@@ -40,8 +40,7 @@ blankedObj.computeBlanking(blankingMaskDict)
 # test
 testDir = Ktest.getDataFolderName()
 testFile = testDir+'/computeBlanking_m1_%d.h5'%globalClac.GetProcID()
-if not testFile: blankedObj.fsmesh.ExportMeshHDF5(Filename=testFile) or FSError.PrintAndExit()
-testH5(clac, blankedObj.fsmesh, number=1,
+testH5(clac, blankedObj.fsmesh,
     checkCoordinates=True, coordsName='Coordinates',
     checkConnectivity=True, checkDatasets=True,
     rtol=0., atol=1.e-10,
