@@ -44,7 +44,6 @@ evalGridSpeed(fsmeshOrig, meshKey, 0.25, motionDict)
 testDir = Ktest.getDataFolderName()
 testFile = testDir+'/evalGridSpeed_m1_%d.h5'%globalClac.GetProcID()
 testH5(clac, fsmeshOrig,
-    checkCoordinates=True, coordsName='Coordinates',
-    checkConnectivity=True, checkDatasets=True,
-    rtol=0., atol=1.e-10,
-    reference=testFile)
+       coordsName='Coordinates',
+       rtol=0., atol=1.e-10,
+       reference=testFile)

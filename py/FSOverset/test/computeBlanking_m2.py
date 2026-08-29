@@ -45,7 +45,6 @@ blankedObj.computeBlanking(blankingMaskDict)
 testDir = Ktest.getDataFolderName()
 testFile = testDir+'/computeBlanking_m2_%d.h5'%globalClac.GetProcID()
 testH5(clac, blankedObj.fsmesh,
-    checkCoordinates=True, coordsName='Coordinates',
-    checkConnectivity=True, checkDatasets=True,
-    rtol=0., atol=1.e-10,
-    reference=testFile)
+       coordsName='Coordinates',
+       rtol=0., atol=1.e-10,
+       reference=testFile)

@@ -55,10 +55,9 @@ evalPosition(fsmeshOrig, meshKey, 0.25, motionDict, blankingMaskDict)
 testDir = Ktest.getDataFolderName()
 testFile = testDir+'/evalPosition_m1_%d.h5'%globalClac.GetProcID()
 testH5(clac, fsmeshOrig,
-    checkCoordinates=True, coordsName='Coordinates',
-    checkConnectivity=True, checkDatasets=True,
-    rtol=0., atol=1.e-10,
-    reference=testFile)
+       coordsName='Coordinates',
+       rtol=0., atol=1.e-10,
+       reference=testFile)
 
 if globalClac.GetProcID() == 0:
     for pos, meshKeyLocal in enumerate(blankingMaskDict): Ktest.testT(blankingMaskDict[meshKeyLocal],pos+1)

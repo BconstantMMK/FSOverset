@@ -22,10 +22,9 @@ motionDict = {'cart': {}}
 def runTest(fsmesh, number):
     testFile = testDir+'/evalPosition_t1_%d.h5'%number
     testH5(clac, fsmesh,
-        checkCoordinates=True, coordsName='Coordinates',
-        checkConnectivity=True, checkDatasets=True,
-        rtol=0., atol=1.e-10,
-        reference=testFile)
+           coordsName='Coordinates',
+           rtol=0., atol=1.e-10,
+           reference=testFile)
 
 def printDiffRigidMotion(t, fsmesh, motionDict, number):
     if motionDict is not None:
