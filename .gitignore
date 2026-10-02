@@ -57,7 +57,4 @@ ENV/
 *.dat
 *.h5
 *.grid
-*.xml
-*.png
-*.mp4
 Data_*
