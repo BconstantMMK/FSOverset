@@ -13,9 +13,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "FSOverset"  # "fsoverset"
 description = """
-FSOverset is a mesh conversion FS plugin that facilitates data 
-exchange between the CODA ecosystem and ONERA's CGNS pre- and 
-post-processing tools.
+FSOverset is a grid handler FlowSimulator-Plugin that interfaces ONERA's 
+CGNS pre- and post-processing tools, DLR's FSOversetBlanking, 
+and the CODA ecosystem to perform unsteady blanking operations
+on overset grids.
 """
 readme = "README.rst"
 authors = [{name = "ONERA (The French Aerospace Lab)"}]
