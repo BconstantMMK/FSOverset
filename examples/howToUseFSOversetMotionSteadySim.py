@@ -7,6 +7,8 @@ from CODA import MonitorTabular, MonitorSelection
 from CODA.CODAHelpers import BuildDiscretizationParameterTrees, BuildTimeIntegrationParameterTrees
 
 from FSOversetMotion.FSOversetMotion import FSOversetMotion, generateBlankingMask, extractActiveSubMesh, copySolution, generateDiscParasFromMesh, getClacInfo, getMeshKeys, display
+from FSOversetMotion.FSOversetMotion import CPLOT_ENABLED
+
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 
 # mesh settings
@@ -169,8 +171,8 @@ state.ExportToFSMesh(disc.GetMeshInterface(), fsmeshActive, 'State') or FSError.
 # copy solution to original grids
 copySolution(dm, meshKeyOrig, meshKeyActive)
 
-# export image with Cassiopee
-if displayDict is not None:
+# export image with Cassiopee (requires CPlot modules)
+if displayDict is not None and CPLOT_ENABLED:
     iterations = dataLog.GetDataArray('TimeIntegration', 'Iteration')
     niter = iterations.Size()
     it = iterations[niter-1]
