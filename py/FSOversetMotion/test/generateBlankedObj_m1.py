@@ -1,7 +1,7 @@
-# Usage: kpython -n3 -t4 generateBlankedObj_m2.py
+# Usage: kpython -n2 -t4 generateBlankedObj_m1.py
 from FSDataManager import FSError, FSDataManager
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
-from FSOverset.FSOverset import FSOverset, getClacInfo, getMeshKeys
+from FSOversetMotion.FSOversetMotion import FSOversetMotion, getClacInfo, getMeshKeys
 import Converter.PyTree as C
 import KCore.test as Ktest
 
@@ -9,12 +9,10 @@ localDirIn = './INPUT/'
 
 meshDict = {
     'background': {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1.},
-    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.},
-    'cyl': {'meshFilename': localDirIn+'cylinder_large.h5', 'meshProcessorWeight': 1.}
+    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.}
 }
 blankingDict = {
-    'background': ['naca','cyl'],
-    'cyl': ['naca']
+    'background': ['naca']
 }
 
 # Get clacs
@@ -28,10 +26,10 @@ fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
 meshOps = buildMeshOps(meshFilename, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
-# Initialize FSOverset class for every meshKey
-blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
+# Initialize FSOversetMotion class for every meshKey
+blankedObj = FSOversetMotion(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
 
 # test
-t = blankedObj.pyTree        
+t = blankedObj.pyTree
 if t is None: t = C.newPyTree(['DUMMY_%d'%meshColor])
 Ktest.testT(t,globalClac.GetProcID())

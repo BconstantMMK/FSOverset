@@ -1,7 +1,7 @@
-# Usage: kpython -n3 -t4 computeBlanking_m2.py
+# Usage: kpython -n2 -t4 extractActiveSubMesh_m1.py
 from FSDataManager import FSError, FSDataManager
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
-from FSOverset.FSOverset import FSOverset, getClacInfo, getMeshKeys
+from FSOversetMotion.FSOversetMotion import FSOversetMotion, extractActiveSubMesh, getClacInfo, getMeshKeys
 from FSPlugins.test import testH5
 import Generator.PyTree as G
 import Post.PyTree as P
@@ -11,17 +11,13 @@ localDirIn = './INPUT/'
 
 meshDict = {
     'background': {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1.},
-    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.},
-    'cyl': {'meshFilename': localDirIn+'cylinder_large.h5', 'meshProcessorWeight': 1.}
+    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.}
 }
 blankingMaskDict = {
-    'naca': P.exteriorFaces(G.cart((-0.3,0,-0.2), (1.6,0.02,0.4), (2,2,2))),
-    'cyl': P.exteriorFaces(G.cart((1.25,0,-0.2), (1.25,0.02,0.4), (2,2,2)))
+    'naca': P.exteriorFaces(G.cart((-0.3,0,-0.2), (2.92,0.02,0.4), (2,2,2)))
 }
 blankingDict = {
-    'background': ['naca','cyl'],
-    'naca': ['cyl'],
-    'cyl': ['naca']
+    'background': ['naca']
 }
 
 # Get clacs
@@ -35,15 +31,21 @@ fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
 meshOps = buildMeshOps(meshFilename, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
-# Initialize FSOverset class for every meshKey
-blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
+# Get active mesh
+fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
+
+# Initialize FSOversetMotion class for every meshKey
+blankedObj = FSOversetMotion(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
 
 # Update cell nature field with 0 (blanked) and 1 (active)
 blankedObj.computeBlanking(blankingMaskDict)
 
+# Remove blanked cells from active mesh
+extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
+
 # test
 testDir = Ktest.getDataFolderName()
-testFile = testDir+'/computeBlanking_m2_%d.h5'%globalClac.GetProcID()
+testFile = testDir+'/extractActiveSubMesh_m1_%d.h5'%globalClac.GetProcID()
 testH5(clac, blankedObj.fsmesh,
        coordsName='Coordinates',
        rtol=0., atol=1.e-10,

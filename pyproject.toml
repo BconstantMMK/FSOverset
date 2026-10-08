@@ -11,9 +11,9 @@ build-backend = "setuptools.build_meta"
 
 # Project metadata and configuration options.
 [project]
-name = "FSOverset"  # "fsoverset"
+name = "FSOversetMotion"  # "fsoversetmotion"
 description = """
-FSOverset is a grid handler FlowSimulator-Plugin that interfaces ONERA's 
+FSOversetMotion is a grid handler FlowSimulator-Plugin that interfaces ONERA's 
 CGNS pre- and post-processing tools, DLR's FSOversetBlanking, 
 and the CODA ecosystem to perform unsteady blanking operations
 on overset grids.
@@ -56,7 +56,7 @@ dev = [
 
 # Defines command-line scripts and their entry points. Creates an executable for the package.
 [project.scripts]
-#"fsoverset" = "fsoverset.__main__:main"
+#"fsoversetmotion" = "fsoversetmotion.__main__:main"
 
 # Ensures non-code files are included in the package.
 [tool.setuptools]
@@ -68,7 +68,7 @@ find = { where = ["py"] }
 #find = { where = ["src"] }
 
 [tool.setuptools_scm]
-version_file = "py/FSOverset/_version.py"
+version_file = "py/FSOversetMotion/_version.py"
 
 # Specifies configuration options for building a universal wheel.
 [tool.bdist_wheel]

@@ -46,10 +46,10 @@ test: ## run tests quickly with the default Python
 	pytest tests
 
 docs: ## generate Sphinx HTML documentation, including API docs
-	rm -f docs/fsoverset.rst
+	rm -f docs/fsoversetmotion.rst
 	rm -f docs/modules.rst
-  # sphinx-apidoc -o docs/code src/fsoverset
-	sphinx-apidoc -o docs/code py/FSOverset
+  # sphinx-apidoc -o docs/code src/fsoversetmotion
+	sphinx-apidoc -o docs/code py/FSOversetMotion
 	$(MAKE) -C docs clean
 	$(MAKE) -C docs html
 

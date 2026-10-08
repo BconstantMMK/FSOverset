@@ -5,7 +5,7 @@ from CODA import StopNumIterations, StopRelativeReduction
 from CODA import MonitorTabular, MonitorSelection
 from CODA.CODAHelpers import BuildDiscretizationParameterTrees, BuildTimeIntegrationParameterTrees
 
-from FSOverset.FSOverset import generateDiscParasFromMesh
+from FSOversetMotion.FSOversetMotion import generateDiscParasFromMesh
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 
 # mesh settings

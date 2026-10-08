@@ -1,7 +1,7 @@
-# Usage: kpython -n3 -t4 generateBlankingMask_m3.py
+# Usage: kpython -n3 -t4 generateBlankingMask_m2.py
 from FSDataManager import FSError, FSDataManager
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
-from FSOverset.FSOverset import generateBlankingMask, getClacInfo
+from FSOversetMotion.FSOversetMotion import generateBlankingMask, getClacInfo
 import KCore.test as Ktest
 
 localDirIn = './INPUT/'
@@ -12,8 +12,8 @@ meshDict = {
     'cyl': {'meshFilename': localDirIn+'cylinder_small.h5', 'meshProcessorWeight': 1.}
 }
 offsetDict = {
-    'naca': 0.,
-    'cyl': 0.
+    'naca': 0.2,
+    'cyl': 0.05
 }
 
 # Get clacs
@@ -35,14 +35,5 @@ blankingMaskDict = generateBlankingMask(
     check=False)
 
 # test
-import Converter.Mpi as Cmpi
-import Converter.Internal as Internal
-
 if globalClac.GetProcID() == 0:
-    for pos, meshKeyLocal in enumerate(blankingMaskDict):
-        # The three lines below are meant to prevent regression
-        Cmpi._setProc(blankingMaskDict[meshKeyLocal], pos+1)
-        param = Internal.getNodeFromName1(blankingMaskDict[meshKeyLocal], '.Solver#Param')
-        Internal.newDataArray('meshID', parent=param, value=pos+1)
-        
-        Ktest.testT(blankingMaskDict[meshKeyLocal],pos+1)
+    for pos, meshKeyLocal in enumerate(blankingMaskDict): Ktest.testT(blankingMaskDict[meshKeyLocal],pos+1)

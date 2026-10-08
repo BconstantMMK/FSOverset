@@ -29,7 +29,7 @@ from FSCGNSConverter.FSCGNSConverter import FSCGNSConverter
 import math
 
 __all__ = [
-    'FSOverset', 'generateBlankingMask', 'extractPyTree',
+    'FSOversetMotion', 'generateBlankingMask', 'extractPyTree',
     'generateDiscParasFromMesh', 'generateBCDictFromMesh',
     'extractActiveSubMesh', 'copySolution'
 ]
@@ -41,7 +41,7 @@ __RAD2DEG__ = 180./math.pi
 # Classes
 # ---------------------------------------------------------------------------- #
 
-class FSOverset:
+class FSOversetMotion:
 
     def __init__(self, clac, fsmesh, meshKey, blankingDict={}):
         self.clac = clac
@@ -99,7 +99,7 @@ class FSOverset:
         return None
 
 # ---------------------------------------------------------------------------- #
-# FSOverset Functions
+# FSOversetMotion Functions
 # ---------------------------------------------------------------------------- #
 
 # offsetDict : mandatory (can be zero) to specify if a BC defines a blanking mask or not.
@@ -345,7 +345,7 @@ def getClacInfo(meshDict):
 
     # first security check
     if nGlobalProcs < nMeshes:
-        raise ValueError('FSOverset: the number of MPI processes must be greater or equal to the number of meshes (nMeshes = %d)'%nMeshes)
+        raise ValueError('FSOversetMotion: the number of MPI processes must be greater or equal to the number of meshes (nMeshes = %d)'%nMeshes)
 
     # compute total mesh weight and sort meshKeys per weight
     for meshKeyLocal in meshDict: 
