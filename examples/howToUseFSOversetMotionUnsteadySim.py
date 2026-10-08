@@ -8,6 +8,8 @@ from CODA.CODAHelpers import BuildDiscretizationParameterTrees, BuildTimeIntegra
 
 from FSOversetMotion.FSOversetMotion import FSOversetMotion, generateBlankingMask, extractActiveSubMesh, copySolution, generateDiscParasFromMesh
 from FSOversetMotion.FSOversetMotion import initGridVelocity, copyGrid2GridInit, evalPosition, evalGridSpeed, getWallBoundaryMarkers, display, getClacInfo, getMeshKeys
+from FSOversetMotion.FSOversetMotion import CPLOT_ENABLED
+
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 
 import math
@@ -282,8 +284,8 @@ for i in range(niter):
     # copy solution to original grids
     copySolution(dm, meshKeyOrig, meshKeyActive)
 
-    # export image with Cassiopee
-    if displayDict is not None:
+    # export image with Cassiopee (requires CPlot modules)
+    if displayDict is not None and CPLOT_ENABLED:
         display(globalClac, fsmeshActive, meshKey, displayDict['variables'], dataset='State', it=i+1, displayDict=displayDict, localDir=localDirOut, saveTree=True)
 
     # export flow solution

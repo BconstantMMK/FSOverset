@@ -10,8 +10,13 @@ import Generator.PyTree as G
 import Transform.PyTree as T
 import Geom.PyTree as D
 import RigidMotion.PyTree as R
-import CPlot.PyTree as CPlot
-import CPlot.Decorator as Decorator
+
+try:
+    import CPlot.PyTree as CPlot
+    import CPlot.Decorator as Decorator
+    CPLOT_ENABLED = True
+except:
+    CPLOT_ENABLED = False
 
 from FSDataManager import (
     FSClac,
@@ -189,6 +194,11 @@ def extractPyTree(clac, fsmesh):
 
 def display(clac, fsmesh, meshKey, variables, dataset='State', it=0, displayDict={}, localDir='./', saveTree=False):
     """Display flow solution using Cassiopee"""
+    if not CPLOT_ENABLED:
+        raise ImportError(
+            'FSOversetMotion: display function requires CPlot.Pytree and Cplot.Decorator modules from Cassiopée'
+        )
+
     # get display information
     colormap = displayDict.get('colormap', 24) # default: jet
     isoEdges = displayDict.get('isoEdges', 0.) # line width of isolines
