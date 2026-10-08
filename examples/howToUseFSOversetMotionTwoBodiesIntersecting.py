@@ -1,23 +1,24 @@
-# Usage: kpython -n3 -t4 howToUseCassiopeeHoleCuttingTwoBodies.py
+# Usage: kpython -n3 -t4 howToUseFSOversetMotionTwoBodiesIntersecting.py
 from FSDataManager import FSError, FSDataManager
 
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 from FSOversetMotion.FSOversetMotion import FSOversetMotion, generateBlankingMask, extractActiveSubMesh, getClacInfo, getMeshKeys
 
 localDirIn = './INPUT/'
-localDirOut = './OUTPUT/TEST2/'
+localDirOut = './OUTPUT/TEST3/'
 
 meshDict = {
     'background': {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1.},
     'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.},
-    'cyl': {'meshFilename': localDirIn+'cylinder_small.h5', 'meshProcessorWeight': 1.}
+    'cyl': {'meshFilename': localDirIn+'cylinder_large.h5', 'meshProcessorWeight': 1.}
 }
 offsetDict = {
     'naca': 0.3,
     'cyl': 0.3
 }
 blankingDict = {
-    'background': ['naca','cyl']
+    'background': ['naca','cyl'],
+    'cyl': ['naca']
 }
 
 # Get clacs

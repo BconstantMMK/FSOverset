@@ -1,21 +1,23 @@
-# Usage: kpython -n2 -t4 howToUseCassiopeeHoleCutting.py
+# Usage: kpython -n3 -t4 howToUseFSOversetMotionTwoBodies.py
 from FSDataManager import FSError, FSDataManager
 
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 from FSOversetMotion.FSOversetMotion import FSOversetMotion, generateBlankingMask, extractActiveSubMesh, getClacInfo, getMeshKeys
 
 localDirIn = './INPUT/'
-localDirOut = './OUTPUT/TEST1/'
+localDirOut = './OUTPUT/TEST2/'
 
 meshDict = {
     'background': {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 1.},
-    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.}
+    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.},
+    'cyl': {'meshFilename': localDirIn+'cylinder_small.h5', 'meshProcessorWeight': 1.}
 }
 offsetDict = {
-    'naca': 0.3
+    'naca': 0.3,
+    'cyl': 0.3
 }
 blankingDict = {
-    'background': ['naca']
+    'background': ['naca','cyl']
 }
 
 # Get clacs
@@ -32,7 +34,7 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 # Get active mesh
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
-# FSOversetMotion 
+# FSOversetMotion
 blankingMaskDict = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
     offsetDict=offsetDict,
@@ -47,7 +49,7 @@ blankingObj = FSOversetMotion(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, bla
 blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
 
 # 2-remove blanked cells
-extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
+extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive) 
 
 # 3-save active mesh
 fsmeshActive.ExportMeshHDF5(Filename=localDirOut+'%s_active.h5'%meshKey) or FSError.PrintAndExit()

@@ -1,38 +1,22 @@
-from FSDataManager import FSError, FSDataLog, FSDataManager
+# Usage: kpython -n1 -t4 howToUseFSOversetMotionSteadSimReference.py
+from FSDataManager import FSClac, FSError, FSDataLog, FSDataManager, FSMesh
 
 from CODA import DiscretizationFactory, TimeIntegrationFactory
 from CODA import StopNumIterations, StopRelativeReduction
 from CODA import MonitorTabular, MonitorSelection
 from CODA.CODAHelpers import BuildDiscretizationParameterTrees, BuildTimeIntegrationParameterTrees
 
-from FSOversetMotion.FSOversetMotion import FSOversetMotion, generateBlankingMask, extractActiveSubMesh, copySolution, generateDiscParasFromMesh, getClacInfo, getMeshKeys, display
+from FSOversetMotion.FSOversetMotion import generateDiscParasFromMesh
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 
 # mesh settings
 localDirIn = 'INPUT/'
-localDirOut = 'OUTPUT/STEADY/'
+localDirOut = 'OUTPUT/STEADY_REF/'
+meshFilename = localDirIn+'reference.h5'
 
 # solver settings
 targetResidualReduction = 1.0e-8
 maximumNumberOfIterations = 200
-
-meshDict = {
-    'background': {'meshFilename': localDirIn+'background.h5', 'meshProcessorWeight': 2.},
-    'naca': {'meshFilename': localDirIn+'naca.h5', 'meshProcessorWeight': 1.},
-}
-offsetDict = {
-    'naca': 0.3
-}
-blankingDict = {
-    'background': ['naca']
-}
-displayDict = {
-    'variables': ['Density'],
-    'xlim': [-1.5, 2.5],
-    'ylim': [-1.0, 1.0],
-    'zplane': 0.0,
-    'mpl': False
-}
 
 discSelectionParaDict = {
     "PDE" : "Euler",
@@ -88,50 +72,24 @@ timeIntegrationParaDict = {
 }
 
 ## ====================================
-## Get clacs, fsmesh, etc.
-## ====================================
+## Create Data Manager & set Orig/Active
+## ====================================    
+clac = FSClac()
+dm = FSDataManager(clac)
+fsmeshActive = FSMesh(clac)
 
-# Get clacs
-meshKey, meshColor, clac, globalClac, masterClac = getClacInfo(meshDict)
-meshFilename = meshDict[meshKey]['meshFilename']
-meshKeyActive, meshKeyOrig = getMeshKeys(meshKey, blankingDict)
-
-# Get orig mesh
-dm = FSDataManager(globalClac)
-fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
-meshOps = buildMeshOps(meshFilename, verbose=False)
-fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
-
-# Get active mesh
-fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
-
-## ====================================
-## initialize FSOversetMotion
-## ====================================
-
-blankingMaskDict = generateBlankingMask(
-    clac=clac, fsmesh=fsmeshOrig,
-    offsetDict=offsetDict,
-    meshKey=meshKey,
-    localDir=localDirOut,
-    offsetFromBC='BCWall',
-    check=False)
-
-blankingObj = FSOversetMotion(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
-# need to run it once to initialize fsmeshActive and create the local numbering
-blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
-extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)
+meshOps = buildMeshOps(meshFilename, preserveCellStacks=True, verbose=True)
+fsmeshActive.DoOps(meshOps) or FSError.PrintAndExit()
 
 ## ====================================
 ## Set up CODA Dics & Settings
 ## ====================================
-
-fsmeshActive.CreateLocalNumbering()
+fsmeshActive.CreateLocalNumbering() # mandatory for Cmpi.size > 2
 
 discParaDict = generateDiscParasFromMesh(fsmeshActive, discParaDict)
 
 discSelectionParas, discParas = BuildDiscretizationParameterTrees(discSelectionParaDict, discParaDict)
-disc = DiscretizationFactory.GetSingleton().Create(discSelectionParas, globalClac, fsmeshActive, discParas)
+disc = DiscretizationFactory.GetSingleton().Create(discSelectionParas, clac, fsmeshActive, discParas)
 
 timeIntegrationParasAllLevels = BuildTimeIntegrationParameterTrees([timeIntegrationParaDict])
 timeIntegrationParas = timeIntegrationParasAllLevels[0]
@@ -145,7 +103,7 @@ monitorVariables = ['CFL'] + ['%sReduction'%res for res in residualNames]
 reductionCallback = StopRelativeReduction(residualNames, targetResidualReduction)
 
 iterationCallbacks = (reductionCallback | StopNumIterations(maximumNumberOfIterations)) + MonitorTabular(
-    globalClac,
+    clac,
     disc.GetStateVariableNames(),
     timeIntegrationParas['state backup controller'],
     monitorVariables=monitorVariables,
@@ -153,7 +111,7 @@ iterationCallbacks = (reductionCallback | StopNumIterations(maximumNumberOfItera
     monitorPeriod=1,
 )
 
-dataLog = FSDataLog(globalClac)
+dataLog = FSDataLog(clac)
 
 ## ====================================
 ## Compute loop
@@ -165,20 +123,8 @@ status = timeIntegration.Iterate([iterationCallbacks], state, dataLog)
 # copy solution to active grids
 state.ExportToFSMesh(disc.GetMeshInterface(), fsmeshActive, 'State') or FSError.PrintAndExit()
 
-# copy solution to original grids
-copySolution(dm, meshKeyOrig, meshKeyActive)
-
-# export image with Cassiopee
-if displayDict is not None:
-    iterations = dataLog.GetDataArray('TimeIntegration', 'Iteration')
-    niter = iterations.Size()
-    it = iterations[niter-1]
-
-    display(globalClac, fsmeshActive, meshKey, displayDict['variables'], dataset='State', it=it, displayDict=displayDict, localDir=localDirOut, saveTree=True)
-
 # export convergence history
 dataLog.ExportDataTECPLOT(localDirOut+'monitor.dat', 'l2-norms') or FSError.PrintAndExit()
 
 # export flow solution
-fsmeshActive.ExportMeshHDF5(HDF5Filename=localDirOut+'solution_%s_active.h5'%meshKey, FilePerProcess=False) or FSError.PrintAndExit()
-fsmeshOrig.ExportMeshHDF5(HDF5Filename=localDirOut+'solution_%s_orig.h5'%meshKey, FilePerProcess=False) or FSError.PrintAndExit()
+fsmeshActive.ExportMeshHDF5(HDF5Filename=localDirOut+'solution_reference.h5', FilePerProcess=False) or FSError.PrintAndExit()
