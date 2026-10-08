@@ -196,7 +196,7 @@ def display(clac, fsmesh, meshKey, variables, dataset='State', it=0, displayDict
     """Display flow solution using Cassiopee"""
     if not CPLOT_ENABLED:
         raise ImportError(
-            'FSOversetMotion: display function requires CPlot.Pytree and Cplot.Decorator modules from Cassiopée'
+            'FSOversetMotion: display function requires CPlot.Pytree and CPlot.Decorator modules from Cassiopee'
         )
 
     # get display information
