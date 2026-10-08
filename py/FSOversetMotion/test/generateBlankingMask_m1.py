@@ -1,7 +1,7 @@
 # Usage: kpython -n2 -t4 generateBlankingMask_m1.py
 from FSDataManager import FSError, FSDataManager
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
-from FSOverset.FSOverset import generateBlankingMask, getClacInfo
+from FSOversetMotion.FSOversetMotion import generateBlankingMask, getClacInfo
 import KCore.test as Ktest
 
 localDirIn = './INPUT/'

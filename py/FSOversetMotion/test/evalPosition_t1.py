@@ -10,7 +10,7 @@ from FSPlugins.test import testH5
 from FSDataManager import FSError
 
 from FSCGNSConverter.FSCGNSConverter import FSCGNSConverter
-from FSOverset.FSOverset import copyGrid2GridInit, evalPosition
+from FSOversetMotion.FSOversetMotion import copyGrid2GridInit, evalPosition
 
 import numpy
 
@@ -52,7 +52,7 @@ def printDiffRigidMotion(t, fsmesh, motionDict, number):
     diffY = numpy.abs(CoordY_pytree-CoordY_fsmesh)
     diffZ = numpy.abs(CoordZ_pytree-CoordZ_fsmesh)
     
-    print('\nCase %d: comparing FSOverset.evalGridSpeed with RigidMotion.evalGridSpeed'%number)
+    print('\nCase %d: comparing FSOversetMotion.evalGridSpeed with RigidMotion.evalGridSpeed'%number)
     print('maxDiffX/maxDiffY/maxDiffZ = %1.2e/%1.2e/%1.2e\n'%(numpy.max(diffX), numpy.max(diffY), numpy.max(diffZ)))
 
     return None

@@ -10,7 +10,7 @@ from FSPlugins.test import testH5
 from FSDataManager import FSError
 
 from FSCGNSConverter.FSCGNSConverter import FSCGNSConverter
-from FSOverset.FSOverset import initGridVelocity, evalGridSpeed
+from FSOversetMotion.FSOversetMotion import initGridVelocity, evalGridSpeed
 
 import numpy
 
@@ -55,7 +55,7 @@ def printDiffRigidMotion(t, fsmesh, motionDict, number):
     maxDiffY = numpy.max(diffY)
     maxDiffZ = numpy.max(diffZ)
     
-    print('\nCase %d: comparing FSOverset.evalGridSpeed with RigidMotion.evalGridSpeed'%number)
+    print('\nCase %d: comparing FSOversetMotion.evalGridSpeed with RigidMotion.evalGridSpeed'%number)
     print('maxDiffX/maxDiffY/maxDiffZ = %1.2e/%1.2e/%1.2e\n'%(maxDiffX, maxDiffY, maxDiffZ))
 
     return None

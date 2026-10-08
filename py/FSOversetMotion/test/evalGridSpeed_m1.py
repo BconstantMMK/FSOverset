@@ -1,8 +1,8 @@
-# Usage: kpython -n2 -t4 generateBlankedObj_m1.py
+# Usage: kpython -n2 -t4 evalGridSpeed_m1.py
 from FSDataManager import FSError, FSDataManager
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
-from FSOverset.FSOverset import FSOverset, getClacInfo, getMeshKeys
-import Converter.PyTree as C
+from FSOversetMotion.FSOversetMotion import initGridVelocity, evalGridSpeed, getClacInfo, getMeshKeys
+from FSPlugins.test import testH5
 import KCore.test as Ktest
 
 localDirIn = './INPUT/'
@@ -13,6 +13,14 @@ meshDict = {
 }
 blankingDict = {
     'background': ['naca']
+}
+motionDict = {
+    'naca': {
+        'transl_speed': [0.,0.,0.],
+        'axis_pnt': [0.25,0.,0.],
+        'axis_vct': [0.,1.,0.],
+        'angular_frq': 0.038
+    }
 }
 
 # Get clacs
@@ -26,10 +34,16 @@ fsmeshOrig = dm.GetMesh(meshKeyOrig, clac, True)
 meshOps = buildMeshOps(meshFilename, verbose=False)
 fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 
-# Initialize FSOverset class for every meshKey
-blankedObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
+# Init grid vel
+initGridVelocity(fsmeshOrig, meshKey, motionDict)
+
+# Eval grid vel at time = 0.25
+evalGridSpeed(fsmeshOrig, meshKey, 0.25, motionDict)
 
 # test
-t = blankedObj.pyTree
-if t is None: t = C.newPyTree(['DUMMY_%d'%meshColor])
-Ktest.testT(t,globalClac.GetProcID())
+testDir = Ktest.getDataFolderName()
+testFile = testDir+'/evalGridSpeed_m1_%d.h5'%globalClac.GetProcID()
+testH5(clac, fsmeshOrig,
+       coordsName='Coordinates',
+       rtol=0., atol=1.e-10,
+       reference=testFile)

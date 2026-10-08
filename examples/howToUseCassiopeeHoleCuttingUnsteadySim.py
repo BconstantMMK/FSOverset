@@ -5,8 +5,8 @@ from CODA import StopNumIterations, StopRelativeReduction
 from CODA import MonitorTabular, MonitorSelection, MonitorIntegrals
 from CODA.CODAHelpers import BuildDiscretizationParameterTrees, BuildTimeIntegrationParameterTrees
 
-from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractActiveSubMesh, copySolution, generateDiscParasFromMesh
-from FSOverset.FSOverset import initGridVelocity, copyGrid2GridInit, evalPosition, evalGridSpeed, getWallBoundaryMarkers, display, getClacInfo, getMeshKeys
+from FSOversetMotion.FSOversetMotion import FSOversetMotion, generateBlankingMask, extractActiveSubMesh, copySolution, generateDiscParasFromMesh
+from FSOversetMotion.FSOversetMotion import initGridVelocity, copyGrid2GridInit, evalPosition, evalGridSpeed, getWallBoundaryMarkers, display, getClacInfo, getMeshKeys
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 
 import math
@@ -14,7 +14,7 @@ import sys
 
 motionType = sys.argv[1].lower()
 if motionType not in ['rotation', 'oscillation']:
-    raise ValueError('FSOverset: incorrect motionType (%s). Possible values are "rotation" and "oscillation".'%motionType)
+    raise ValueError('FSOversetMotion: incorrect motionType (%s). Possible values are "rotation" and "oscillation".'%motionType)
 
 # mesh settings
 localDirIn = 'INPUT/'
@@ -171,7 +171,7 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
 ## ====================================
-## initialize FSOverset
+## initialize FSOversetMotion
 ## ====================================
 
 blankingMaskDict = generateBlankingMask(
@@ -182,7 +182,7 @@ blankingMaskDict = generateBlankingMask(
     offsetFromBC='BCWall',
     check=False)
 
-blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
+blankingObj = FSOversetMotion(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
 # need to run it once to initialize fsmeshActive and create the local numbering
 blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
 extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)

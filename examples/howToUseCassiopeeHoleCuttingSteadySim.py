@@ -5,7 +5,7 @@ from CODA import StopNumIterations, StopRelativeReduction
 from CODA import MonitorTabular, MonitorSelection
 from CODA.CODAHelpers import BuildDiscretizationParameterTrees, BuildTimeIntegrationParameterTrees
 
-from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractActiveSubMesh, copySolution, generateDiscParasFromMesh, getClacInfo, getMeshKeys, display
+from FSOversetMotion.FSOversetMotion import FSOversetMotion, generateBlankingMask, extractActiveSubMesh, copySolution, generateDiscParasFromMesh, getClacInfo, getMeshKeys, display
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
 
 # mesh settings
@@ -106,7 +106,7 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
 ## ====================================
-## initialize FSOverset
+## initialize FSOversetMotion
 ## ====================================
 
 blankingMaskDict = generateBlankingMask(
@@ -117,7 +117,7 @@ blankingMaskDict = generateBlankingMask(
     offsetFromBC='BCWall',
     check=False)
 
-blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
+blankingObj = FSOversetMotion(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
 # need to run it once to initialize fsmeshActive and create the local numbering
 blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
 extractActiveSubMesh(dm, meshKeyOrig, meshKeyActive)

@@ -2,7 +2,7 @@
 from FSDataManager import FSError, FSDataManager
 
 from FSCGNSConverter.FSCGNSConverter import buildMeshOps
-from FSOverset.FSOverset import FSOverset, generateBlankingMask, extractActiveSubMesh, getClacInfo, getMeshKeys
+from FSOversetMotion.FSOversetMotion import FSOversetMotion, generateBlankingMask, extractActiveSubMesh, getClacInfo, getMeshKeys
 
 localDirIn = './INPUT/'
 localDirOut = './OUTPUT/TEST1/'
@@ -32,7 +32,7 @@ fsmeshOrig.DoOps(meshOps) or FSError.PrintAndExit()
 # Get active mesh
 fsmeshActive = dm.GetMesh(meshKeyActive, clac, True)
 
-# FSOverset 
+# FSOversetMotion 
 blankingMaskDict = generateBlankingMask(
     clac=clac, fsmesh=fsmeshOrig,
     offsetDict=offsetDict,
@@ -41,7 +41,7 @@ blankingMaskDict = generateBlankingMask(
     offsetFromBC='BCWall',  
     check=False)
 
-blankingObj = FSOverset(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
+blankingObj = FSOversetMotion(clac=clac, fsmesh=fsmeshOrig, meshKey=meshKey, blankingDict=blankingDict)
 
 # 1-update cell nature field with 0 (blanked) and 1 (active)
 blankingObj.computeBlanking(blankingMaskDict=blankingMaskDict)
