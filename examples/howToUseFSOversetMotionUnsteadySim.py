@@ -1,3 +1,4 @@
+# Usage: kpython -n2 -t4 howToUseFSOversetMotionUnsteadySim.py
 from FSDataManager import FSClac, FSError, FSDataLog, FSDataManager
 
 from CODA import DiscretizationFactory, TimeIntegrationFactory
